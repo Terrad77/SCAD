@@ -1,0 +1,104 @@
+import type { Claim, Narrative, ResearchOutput, Shot, Hypothesis } from "../../src/core/schemas.js"
+
+export function makeSource(over: Partial<ResearchOutput["sources"][number]> = {}) {
+  return {
+    id: "SRC_001",
+    title: "A Reliable Work",
+    author: "Author",
+    type: "BOOK",
+    reliability: 0.9,
+    ...over,
+  }
+}
+
+export function makeResearch(over: Partial<ResearchOutput> = {}): ResearchOutput {
+  return {
+    sources: [makeSource()],
+    summary: "Established science summary.",
+    ...over,
+  }
+}
+
+export function makeClaim(over: Partial<Claim> = {}): Claim {
+  return {
+    id: "CLM_001",
+    statement: "Humans share a common ancestor with Neanderthals.",
+    sources: ["SRC_001"],
+    evidence: ["Genomic data shows interbreeding."],
+    confidence: 0.8,
+    status: "SUPPORTED",
+    knowledge: "FACT",
+    ...over,
+  }
+}
+
+export function makeClaims(over: Partial<ReturnType<typeof makeResearch>> = {}): {
+  claims: Claim[]
+} {
+  return { claims: [makeClaim()], ...over }
+}
+
+export function makeHypothesis(over: Partial<Hypothesis> = {}): Hypothesis {
+  return {
+    id: "HYP_001",
+    statement: "Geographic isolation could drive reproductive divergence.",
+    basis: ["Isolation reduces gene flow."],
+    supportingClaims: ["CLM_001"],
+    contradictingClaims: [],
+    confidence: 0.5,
+    status: "ACTIVE",
+    assumptions: ["Isolation persists for millennia."],
+    missingInfo: ["Necessary timescale."],
+    verificationTasks: ["Model population genetics."],
+    ...over,
+  }
+}
+
+export function makeNarrative(over: Partial<Narrative> = {}): Narrative {
+  return {
+    title: "Can Humanity Become a New Species?",
+    logline: "A documentary about the future of human evolution.",
+    thesis: "Technology is beginning to shape human evolution.",
+    sections: [
+      {
+        id: "SEC_001",
+        heading: "Hook",
+        sentences: [
+          {
+            id: "SNT_001",
+            text: "Humans share ancestors with Neanderthals, whose genetic influence reached into modern populations.",
+            knowledge: "FACT",
+            claimIds: ["CLM_001"],
+          },
+          {
+            id: "SNT_002",
+            text: "But what if technology begins to rewrite the human story?",
+            knowledge: "SPECULATION",
+            claimIds: [],
+          },
+        ],
+      },
+    ],
+    ...over,
+  }
+}
+
+export function makeShot(over: Partial<Shot> = {}): Shot {
+  return {
+    id: "SHOT_001",
+    duration: 7,
+    narration: "Humans share ancestors with Neanderthals.",
+    visualType: "AI_RECONSTRUCTION",
+    description: "Two hominins crossing a ridge.",
+    camera: "slow tracking shot",
+    lighting: "natural dawn light",
+    mood: "contemplative",
+    source: "SRC_001",
+    narrativeSentenceIds: ["SNT_001"],
+    ...over,
+  }
+}
+
+export function makeShots(over: Partial<ReturnType<typeof makeNarrative>> = {}): { shots: Shot[] } {
+  return { shots: [makeShot()], ...over }
+}
