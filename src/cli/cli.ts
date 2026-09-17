@@ -1,5 +1,8 @@
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
+import { HumanApprover } from "../core/human-approval.js"
 import { runDocumentaryPipeline, renderScript } from "../core/documentary.js"
+import { AutoApprover } from "../core/pipeline.js"
+import type { ApprovalGate } from "../core/pipeline.js"
 import {
   exportArtifacts,
   initProject,
@@ -31,13 +34,15 @@ interface Parsed {
   question?: string
   title?: string
   force: boolean
+  interactive: boolean
 }
 
 export function parseArgs(argv: string[]): Parsed {
-  const flags: Parsed = { force: false }
+  const flags: Parsed = { force: false, interactive: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!
     if (arg === "--force" || arg === "-f") flags.force = true
+    else if (arg === "--interactive" || arg === "-i") flags.interactive = true
     else if (arg === "--question") flags.question = argv[++i]
     else if (arg === "--title") flags.title = argv[++i]
     else if (!flags.name) flags.name = arg
@@ -110,9 +115,10 @@ export async function cmdDocumentary(
   question: string,
   title: string,
   force: boolean,
+  interactive = false,
 ): Promise<number> {
   if (!name) {
-    console.error("Usage: scad documentary <project-name> [--force]")
+    console.error("Usage: scad documentary <project-name> [--force] [--interactive]")
     return 1
   }
   if (!(await projectExists(DATA_DIR, name))) {
@@ -120,12 +126,15 @@ export async function cmdDocumentary(
   }
   const meta = await readMeta(DATA_DIR, name)
   const dir = projectDir(DATA_DIR, name)
+  const memory = new JsonMemoryStore(dir.memoryDir)
+  const approvals: ApprovalGate = interactive ? new HumanApprover(memory) : new AutoApprover()
   const result = await runDocumentaryPipeline({
     provider: providerFromEnv().provider,
     memoryDir: dir.memoryDir,
     question: meta?.question ?? question,
     title: meta?.title ?? title,
     force,
+    approvals,
   })
   const sc = result.selfCheck
   log(

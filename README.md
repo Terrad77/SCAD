@@ -45,11 +45,24 @@ The mock provider returns deterministic JSON responses suitable for demos and te
 
 ## Commands
 
-| Command                                | Description                                     |
-| -------------------------------------- | ----------------------------------------------- |
-| `npx scad documentary <title>`         | Run the full pipeline for a documentary concept |
-| `npx scad documentary <title> --force` | Re-run all stages from scratch                  |
-| `npx scad help`                        | Show help text                                  |
+| Command                                      | Description                                     |
+| -------------------------------------------- | ----------------------------------------------- |
+| `npx scad documentary <title>`               | Run the full pipeline for a documentary concept |
+| `npx scad documentary <title> --force`       | Re-run all stages from scratch                  |
+| `npx scad documentary <title> --interactive` | Halt at checkpoints for human approval          |
+| `npx scad help`                              | Show help text                                  |
+
+### Human Approval
+
+SCAD is not fully autonomous by default. Pass `--interactive` (or `-i`) to review each
+checkpoint before it is locked in:
+
+- **RESEARCH REVIEW** → **HYPOTHESIS REVIEW** → **NARRATIVE REVIEW** → **FINAL FACT CHECK**
+
+At every checkpoint you can: `(a)pprove`, `(r)eject`, `(m)odify` (opens the artifact in
+`$EDITOR`), or `(g)enerate` the stage again. Approved states are recorded in
+`data/projects/<name>/memory/approved.json`. Without the flag, the pipeline auto-approves
+every stage (suitable for automation and CI).
 
 Set `SCAD_DATA_DIR` to change the output root (default: `data/projects`).
 

@@ -19,6 +19,7 @@ export async function main(argv: string[]): Promise<number> {
         parsed.question ?? "",
         parsed.title ?? parsed.name ?? "",
         parsed.force,
+        parsed.interactive,
       )
     }
     default: {
@@ -27,7 +28,7 @@ export async function main(argv: string[]): Promise<number> {
         return cmdStage(command, parsed.name, parsed.force)
       }
       console.error(
-        "Usage: scad <init|research|claims|hypotheses|narrative|shots|check|documentary|list> [project-name] [flags]",
+        "Usage: scad <init|research|claims|hypotheses|narrative|shots|check|documentary|list> [project-name] [--force] [--interactive]",
       )
       return 1
     }

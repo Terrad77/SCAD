@@ -19,11 +19,19 @@ export interface PipelineArtifacts {
   selfCheck?: SelfCheckOutput
 }
 
-export type PipelineRunner = (stage: string, context: Record<string, unknown>) => Promise<unknown>
+export type PipelineRunner = (
+  stage: string,
+  context: Record<string, unknown>,
+  options?: { regenerate?: boolean },
+) => Promise<unknown>
 
 export interface ApprovalDecision {
   approved: boolean
   message?: string
+  /** Re-run the current stage and review the freshly generated artifact again. */
+  regenerate?: boolean
+  /** Human-edited replacement for the current artifact (considered approved). */
+  replacement?: unknown
 }
 
 export interface ApprovalGate {
@@ -74,15 +82,37 @@ export class Pipeline {
         continue
       }
 
-      const result = await this.runStage(stage, context)
+      let result = await this.runStage(stage, context)
       if (result !== undefined) {
         await this.memory.save(stage, result)
         artifacts[stage as keyof PipelineArtifacts] = result as never
       }
       context[stage] = result
 
-      const decision = await this.approvals.review(stage, result)
-      if (!decision.approved) {
+      while (true) {
+        const decision = await this.approvals.review(stage, result)
+
+        if (decision.approved) {
+          if (decision.replacement !== undefined && result !== undefined) {
+            // A human reviewer hand-edited the artifact; persist the new version.
+            result = decision.replacement
+            await this.memory.save(stage, result)
+            artifacts[stage as keyof PipelineArtifacts] = result as never
+            context[stage] = result
+          }
+          break
+        }
+
+        if (decision.regenerate) {
+          result = await this.runStage(stage, context, { regenerate: true })
+          if (result !== undefined) {
+            await this.memory.save(stage, result)
+            artifacts[stage as keyof PipelineArtifacts] = result as never
+          }
+          context[stage] = result
+          continue
+        }
+
         await this.memory.remove(stage)
         throw new StageRejectedError(stage, decision.message ?? "Rejected by human reviewer")
       }
