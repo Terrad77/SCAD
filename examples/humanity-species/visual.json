@@ -1,0 +1,58 @@
+{
+  "shots": [
+    {
+      "id": "SHOT_001",
+      "duration": 5,
+      "narration": "Humans carry a small but measurable percentage of Neanderthal DNA.",
+      "visualType": "INFOGRAPHIC",
+      "description": "Animated bar chart showing 1-4% Neanderthal DNA percentage.",
+      "narrativeSentenceIds": ["SNT_001"]
+    },
+    {
+      "id": "SHOT_002",
+      "duration": 4,
+      "narration": "But what if our species could split again?",
+      "visualType": "AI_RECONSTRUCTION",
+      "description": "Two divergent human silhouettes against a futuristic backdrop.",
+      "camera": "slow pan",
+      "mood": "mysterious",
+      "narrativeSentenceIds": ["SNT_002"]
+    },
+    {
+      "id": "SHOT_003",
+      "duration": 6,
+      "narration": "In classical biology, a species is a group that can interbreed.",
+      "visualType": "ABSTRACT",
+      "description": "Animated interbreeding circle diagram.",
+      "narrativeSentenceIds": ["SNT_003"]
+    },
+    {
+      "id": "SHOT_004",
+      "duration": 5,
+      "narration": "Modern humans and Neanderthals interbred.",
+      "visualType": "ARCHIVE",
+      "description": "Side-by-side hominid skulls with data overlay.",
+      "narrativeSentenceIds": ["SNT_005"]
+    },
+    {
+      "id": "SHOT_005",
+      "duration": 5,
+      "narration": "CRISPR could alter the human germline within a generation.",
+      "visualType": "AI_RECONSTRUCTION",
+      "description": "Double helix unwinding and reassembling with gene-editing visuals.",
+      "camera": "close-up",
+      "mood": "contemplative",
+      "narrativeSentenceIds": ["SNT_006"]
+    },
+    {
+      "id": "SHOT_006",
+      "duration": 4,
+      "narration": "The result may be a new lineage.",
+      "visualType": "ABSTRACT",
+      "description": "Branching evolutionary tree with a new fork forming.",
+      "camera": "pull back",
+      "mood": "unsettling",
+      "narrativeSentenceIds": ["SNT_007"]
+    }
+  ]
+}

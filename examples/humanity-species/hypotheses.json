@@ -1,0 +1,28 @@
+{
+  "hypotheses": [
+    {
+      "id": "HYP_001",
+      "statement": "Geographic or reproductive isolation could cause new speciation.",
+      "basis": ["Allopatric speciation models."],
+      "supportingClaims": ["CLM_001"],
+      "contradictingClaims": [],
+      "confidence": 0.5,
+      "status": "ACTIVE",
+      "assumptions": ["A sufficiently isolated population persists."],
+      "missingInfo": ["Isolation threshold for humans."],
+      "verificationTasks": ["Review reproductive isolation research."]
+    },
+    {
+      "id": "HYP_002",
+      "statement": "Genetic engineering may bypass natural selection and create a new form of human.",
+      "basis": ["Gene therapy and synthetic biology advances."],
+      "supportingClaims": ["CLM_002"],
+      "contradictingClaims": [],
+      "confidence": 0.55,
+      "status": "ACTIVE",
+      "assumptions": ["Technology continues to advance without major restrictions."],
+      "missingInfo": ["Technical feasibility of heritable human germline changes."],
+      "verificationTasks": ["Assess CRISPR human germline progress."]
+    }
+  ]
+}

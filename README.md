@@ -1,37 +1,114 @@
-# Stellarator Cognitive Architecture — MVP
+# SCAD — Stellator Cognitive Architecture Driver
 
-A TypeScript MVP for a multi-agent cognitive architecture. Four independent specialists create proposals in parallel, the Fusion Engine combines them into a decision, and the Field Engine maintains an inertial state across iterations. The default backend is an already authenticated OpenCode installation with `opencode/big-pickle`; Ollama remains a local fallback.
+A modular pipeline for creating documentary film concepts using AI.  
+The system chains research, claims extraction, hypothesis evaluation, fact-checking, narrative writing, and visual planning — all with schema validation, resumable checkpoints, and full source-to-shot traceability.
 
-## MVP Plan
+## Pipeline Overview
 
-1. Define strict Zod schemas for proposals, the field state, and fusion results.
-2. Integrate OpenCode without orchestration frameworks while retaining Ollama as a fallback.
-3. Run specialists in parallel and combine their responses in a convergence loop.
-4. Provide a CLI and verify TypeScript compilation.
+```mermaid
+flowchart LR
+    Q[Research Question] --> R[Research]
+    R --> C[Claims]
+    C --> H[Hypotheses]
+    C --> F[Fact-Check]
+    H --> N[Narrative]
+    F --> N
+    N --> V[Visual Planner]
+    V --> S[Self-Check]
+    S --> O[Output]
 
-## Installation
+    style R fill:#dbeafe,stroke:#3b82f6
+    style F fill:#fef3c7,stroke:#f59e0b
+    style S fill:#fef3c7,stroke:#f59e0b
+    style O fill:#dcfce7,stroke:#22c55e
+```
 
-Requires Node.js 20+ and an authenticated OpenCode installation with the `opencode/big-pickle` model.
+Each stage is **resumable**: artifacts are saved to `data/projects/<name>/memory/` and skipped on re-run unless `--force` is passed.  
+Fact-Check and Self-Check are **deterministic engines** (rules, not LLM) — they verify structure and consistency of the output without calling an API.
 
-```powershell
+## Quick Start
+
+```bash
 npm install
-npm run dev -- "Design an MVP for a task management service" 3 0.8
+npm run build
+npm run lint
+npm test
 ```
 
-By default, the project calls `opencode run --format json --model opencode/big-pickle`. Credentials remain in the user's OpenCode configuration and are never written to this repository. Optionally configure environment variables using `.env.example` as a reference.
+Generate a documentary concept offline (no API key required):
 
-### Local Fallback
-
-To use Ollama instead, start `ollama serve` and switch the backend:
-
-```powershell
-$env:LLM_BACKEND="ollama"
-$env:OLLAMA_MODEL="llama3.2"
-npm run dev -- "Your goal"
+```bash
+LLM_PROVIDER=mock npx scad documentary humanity-species
 ```
 
-## How It Works
+The mock provider returns deterministic JSON responses suitable for demos and testing.
 
-`SpecialistAgent` generates and Zod-validates a strict JSON proposal. `Stellarator` collects all proposals with `Promise.all`; `FusionEngine` then assesses the combined plan and its consensus. `FieldEngine` applies field updates smoothly, retains short-term memory, and ends the loop once the configured convergence threshold is met.
+## Commands
 
-Build with `npm run build`; run the compiled version with `npm start -- "your goal"`.
+| Command                                | Description                                     |
+| -------------------------------------- | ----------------------------------------------- |
+| `npx scad documentary <title>`         | Run the full pipeline for a documentary concept |
+| `npx scad documentary <title> --force` | Re-run all stages from scratch                  |
+| `npx scad help`                        | Show help text                                  |
+
+Set `SCAD_DATA_DIR` to change the output root (default: `data/projects`).
+
+## LLM Providers
+
+Configure via `.env`:
+
+| Provider     | Setting                 | Notes                                                           |
+| ------------ | ----------------------- | --------------------------------------------------------------- |
+| **OpenCode** | `LLM_PROVIDER=opencode` | Default. Uses `OPENCODE_MODEL` (default: `opencode/big-pickle`) |
+| **Ollama**   | `LLM_PROVIDER=ollama`   | Requires local Ollama server. Set `OLLAMA_MODEL`                |
+| **Mock**     | `LLM_PROVIDER=mock`     | Offline. Returns canned JSON by stage. No API key needed        |
+
+## Project Structure
+
+```
+src/
+  core/          # Domain types, Zod schemas, pipeline engine, memory store
+  agents/        # 5 LLM agents + 2 deterministic engines
+  providers/     # LLM + search provider abstractions
+  storage/       # Artifact export (project-store)
+  cli/           # CLI entry point (bin.ts → cli.ts → dispatch.ts)
+prompts/         # System prompt files per stage (loaded at runtime)
+tests/           # Vitest unit + integration tests
+examples/        # Generated documentary concept projects (mock provider)
+```
+
+### Agent Types
+
+| Agent             | Stage        | Type          | Description                                                        |
+| ----------------- | ------------ | ------------- | ------------------------------------------------------------------ |
+| `ResearchAgent`   | `research`   | LLM           | Gathers sources for the topic                                      |
+| `ClaimsAgent`     | `claims`     | LLM           | Extracts factual claims with knowledge-level classification        |
+| `HypothesisAgent` | `hypotheses` | LLM           | Generates testable hypotheses grounded in claims                   |
+| `FactCheckEngine` | `factCheck`  | Deterministic | Verifies claims against research sources                           |
+| `NarrativeAgent`  | `narrative`  | LLM           | Writes a narrative structure with knowledge-level tagged sentences |
+| `VisualAgent`     | `visual`     | LLM           | Converts narrative into visual shots                               |
+| `SelfCheckEngine` | `selfCheck`  | Deterministic | Validates structural consistency of all outputs                    |
+
+## Testing
+
+```bash
+npm test          # 43 tests — schemas, pipeline, engines, integration
+npm run check     # TypeCheck (tsc --noEmit)
+npm run lint      # ESLint (zero warnings)
+```
+
+All tests run **offline** with `MockLLMProvider` — no API key required.
+
+## Traceability
+
+Every shot in the output traces back through:
+
+```
+SHOT → SNT (narrative sentence) → CLM (claim) → SRC (source)
+```
+
+The full traceability report is generated by `buildTraceabilityReport()` and included in the pipeline output.
+
+## License
+
+MIT

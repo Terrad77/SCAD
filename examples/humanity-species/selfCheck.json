@@ -1,0 +1,35 @@
+{
+  "critical": [],
+  "warnings": [
+    {
+      "severity": "warning",
+      "type": "speculation-as-fact",
+      "detail": "Sentence SNT_002 is SPECULATION but reads as definitive: But what if our species could split again — this time, driven by technology rather than ice and isolation?",
+      "claimIds": ["CLM_003"]
+    },
+    {
+      "severity": "warning",
+      "type": "speculation-as-fact",
+      "detail": "Sentence SNT_007 is SPECULATION but reads as definitive: If heritable changes are introduced and propagate through a population, the result may be a new lineage.",
+      "claimIds": ["CLM_003"]
+    }
+  ],
+  "info": [
+    {
+      "severity": "info",
+      "type": "low-confidence",
+      "detail": "Claim CLM_003 has low confidence (0.40): A genetically modified human population might diverge rapidly.",
+      "claimIds": ["CLM_003"]
+    },
+    {
+      "severity": "info",
+      "type": "unlinked-sentence",
+      "detail": "Narrative sentence SNT_003 has no supporting claim: In classical biology, a species is a group of organisms that can interbreed and produce fertile offspring."
+    },
+    {
+      "severity": "info",
+      "type": "unlinked-sentence",
+      "detail": "Narrative sentence SNT_004 has no supporting claim: The definition works well for well-isolated populations but blurs at the edges."
+    }
+  ]
+}

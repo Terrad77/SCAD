@@ -1,0 +1,31 @@
+{
+  "claims": [
+    {
+      "id": "CLM_001",
+      "statement": "Modern humans carry 1-4% Neanderthal DNA from ancient interbreeding.",
+      "sources": ["SRC_001"],
+      "evidence": ["Genomic sequencing of Neanderthal and modern populations."],
+      "confidence": 0.95,
+      "status": "SUPPORTED",
+      "knowledge": "FACT"
+    },
+    {
+      "id": "CLM_002",
+      "statement": "Technology is creating selective pressures unlike anything in natural history.",
+      "sources": ["SRC_002"],
+      "evidence": ["Discussion of genetic engineering, AI, and human enhancement."],
+      "confidence": 0.6,
+      "status": "PARTIAL",
+      "knowledge": "INTERPRETATION"
+    },
+    {
+      "id": "CLM_003",
+      "statement": "A genetically modified human population might diverge rapidly.",
+      "sources": ["SRC_002"],
+      "evidence": ["Speculative projection from current gene therapy research."],
+      "confidence": 0.4,
+      "status": "PARTIAL",
+      "knowledge": "SPECULATION"
+    }
+  ]
+}

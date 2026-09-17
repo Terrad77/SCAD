@@ -1,0 +1,17 @@
+{
+  "sources": [
+    {
+      "id": "SRC_001",
+      "title": "Neanderthal Genome Project",
+      "type": "PAPER",
+      "reliability": 0.95
+    },
+    {
+      "id": "SRC_002",
+      "title": "Future Evolution of Humans",
+      "type": "BOOK",
+      "reliability": 0.7
+    }
+  ],
+  "summary": "Well-established facts about Neanderthal admixture and future evolutionary pressures on Homo sapiens."
+}

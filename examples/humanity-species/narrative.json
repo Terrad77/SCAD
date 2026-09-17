@@ -1,0 +1,73 @@
+{
+  "title": "Can Humanity Become a New Species?",
+  "logline": "When technology begins to shape evolution, the definition of 'human' may change forever.",
+  "thesis": "Human evolution is no longer driven only by nature; technology is creating new forces of divergence.",
+  "sections": [
+    {
+      "id": "SEC_001",
+      "heading": "Hook",
+      "sentences": [
+        {
+          "id": "SNT_001",
+          "text": "Humans carry a small but measurable percentage of Neanderthal DNA from encounters tens of thousands of years ago.",
+          "knowledge": "FACT",
+          "claimIds": ["CLM_001"]
+        },
+        {
+          "id": "SNT_002",
+          "text": "But what if our species could split again — this time, driven by technology rather than ice and isolation?",
+          "knowledge": "SPECULATION",
+          "claimIds": ["CLM_003"]
+        }
+      ]
+    },
+    {
+      "id": "SEC_002",
+      "heading": "What is a biological species?",
+      "sentences": [
+        {
+          "id": "SNT_003",
+          "text": "In classical biology, a species is a group of organisms that can interbreed and produce fertile offspring.",
+          "knowledge": "FACT",
+          "claimIds": []
+        },
+        {
+          "id": "SNT_004",
+          "text": "The definition works well for well-isolated populations but blurs at the edges.",
+          "knowledge": "INTERPRETATION",
+          "claimIds": []
+        }
+      ]
+    },
+    {
+      "id": "SEC_003",
+      "heading": "Humans and Neanderthals",
+      "sentences": [
+        {
+          "id": "SNT_005",
+          "text": "Modern humans and Neanderthals interbred, leaving a small genetic legacy in non-African populations today.",
+          "knowledge": "FACT",
+          "claimIds": ["CLM_001"]
+        }
+      ]
+    },
+    {
+      "id": "SEC_004",
+      "heading": "Technology as a new evolutionary force",
+      "sentences": [
+        {
+          "id": "SNT_006",
+          "text": "CRISPR and other gene-editing tools could alter the human germline within a generation.",
+          "knowledge": "INTERPRETATION",
+          "claimIds": ["CLM_002"]
+        },
+        {
+          "id": "SNT_007",
+          "text": "If heritable changes are introduced and propagate through a population, the result may be a new lineage.",
+          "knowledge": "SPECULATION",
+          "claimIds": ["CLM_003"]
+        }
+      ]
+    }
+  ]
+}
