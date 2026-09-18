@@ -4,3 +4,6 @@ dist/
 runs/
 data/
 examples/*.tmp
+
+# Local agent instructions (kept out of the repo)
+AGENTS.md
