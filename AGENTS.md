@@ -20,16 +20,23 @@ always cross-check against the file.
 
 - MVP per the task is complete, including #12 Human Approval
   (`--interactive` checkpoints `a/r/m/g`, approvals stored in `memory/approved.json`).
-- Checks are green: `npm run build`, `npm run lint`, `npm run format:check`, `npm test` (51 tests).
-- Last commit: `5a8e6bf` (pushed).
+- v0.2 Evidence & Research Engine is complete: research stage is now an engine —
+  plan → search → sources → evidence → claims → contradictions → research gaps →
+  follow-up research → `ResearchBundle`, all with deterministic LLM fallbacks
+  (`maxRetries: 0`). Hypotheses are verified against the evidence chain, and
+  `TraceService` traces shot → sentence → claim → evidence → source.
+- Checks are green: `npm run build`, `npm run lint`, `npm run format:check`, `npm test`
+  (71 tests, 9 files). `AGENTS.md` is excluded from Prettier via `.prettierignore`.
+- Latest feature commit: `3230faa` (Evidence & Research Engine, pushed).
 
 ## Useful commands
 
-- Tests: `npm test` (Vitest, 8 files)
+- Tests: `npm test` (Vitest, 9 files)
 - Build: `npm run build`
-- Lint: `npm run lint` / format: `npm run format:check`
+- Lint: `npm run lint` / format: `npm run format:check` (write: `npm run format`)
 - CLI (offline demo): `LLM_PROVIDER=mock node dist/cli/bin.js documentary <name> --force [--interactive]`
   Use `bin.js`. `cli.js` is just the module without a main entry point.
+- Research inspection: `node dist/cli/bin.js <sources|evidence|contradictions|gaps|trace> <name>`
 - CI expects `scad documentary <name>` to produce all artifacts with mock provider.
 
 ## Windows specifics
