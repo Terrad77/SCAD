@@ -24,7 +24,7 @@ A documentary is not a book summary and not a chatbot answer. You must find idea
       "title": "string",
       "url": "string (optional)",
       "author": "string (optional)",
-      "type": "BOOK | ARTICLE | PAPER | DOCUMENTARY | VIDEO | WEB | INTERVIEW | PERSONAL_KNOWLEDGE",
+      "type": "BOOK | ARTICLE | PAPER | DOCUMENTARY | VIDEO | WEB | INTERVIEW | PERSONAL_KNOWLEDGE | SCIENTIFIC_PAPER | GOVERNMENT | UNIVERSITY | NEWS | DATABASE | DOCUMENTATION | BLOG | SOCIAL_MEDIA | OTHER",
       "reliability": 0.0,
       "notes": "string (optional)"
     }

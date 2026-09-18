@@ -7,6 +7,15 @@ export const SOURCE_TYPES = [
   "WEB",
   "INTERVIEW",
   "PERSONAL_KNOWLEDGE",
+  "SCIENTIFIC_PAPER",
+  "GOVERNMENT",
+  "UNIVERSITY",
+  "NEWS",
+  "DATABASE",
+  "DOCUMENTATION",
+  "BLOG",
+  "SOCIAL_MEDIA",
+  "OTHER",
 ] as const
 export type SourceType = (typeof SOURCE_TYPES)[number]
 
@@ -28,8 +37,41 @@ export const CLAIM_STATUSES = [
 ] as const
 export type ClaimStatus = (typeof CLAIM_STATUSES)[number]
 
-export const HYPOTHESIS_STATUSES = ["ACTIVE", "REJECTED", "APPROVED", "SUPERSEDED"] as const
+export const HYPOTHESIS_STATUSES = [
+  "UNTESTED",
+  "SUPPORTED",
+  "PARTIALLY_SUPPORTED",
+  "CONTRADICTED",
+  "INCONCLUSIVE",
+  "REJECTED",
+  "ACTIVE",
+  "APPROVED",
+  "SUPERSEDED",
+] as const
 export type HypothesisStatus = (typeof HYPOTHESIS_STATUSES)[number]
+
+export const HYPOTHESIS_VERIFICATION_STATUSES = [
+  "UNTESTED",
+  "SUPPORTED",
+  "PARTIALLY_SUPPORTED",
+  "CONTRADICTED",
+  "INCONCLUSIVE",
+  "REJECTED",
+] as const
+export type HypothesisVerificationStatus = (typeof HYPOTHESIS_VERIFICATION_STATUSES)[number]
+
+export const CONTRADICTION_SEVERITIES = ["LOW", "MEDIUM", "HIGH"] as const
+export type ContradictionSeverity = (typeof CONTRADICTION_SEVERITIES)[number]
+
+export const CONTRADICTION_KINDS = [
+  "CONTRADICTION",
+  "UNCERTAINTY",
+  "DIFFERENT_POPULATION",
+  "DIFFERENT_TIME_PERIOD",
+  "DIFFERENT_METHODOLOGY",
+  "DIFFERENT_DEFINITION",
+] as const
+export type ContradictionKind = (typeof CONTRADICTION_KINDS)[number]
 
 export const VISUAL_TYPES = [
   "STOCK",
@@ -58,6 +100,7 @@ export type Stage = (typeof STAGES)[number]
 
 export const APPROVAL_POINTS = [
   "RESEARCH_REVIEW",
+  "EVIDENCE_REVIEW",
   "HYPOTHESIS_REVIEW",
   "NARRATIVE_REVIEW",
   "FINAL_FACT_CHECK",
@@ -70,9 +113,54 @@ export interface Source {
   title: string
   url?: string
   author?: string
+  publisher?: string
   type: SourceType
+  publishedAt?: string
+  accessedAt?: string
   reliability?: number
+  relevance?: number
   notes?: string
+  license?: string
+  canonicalUrl?: string
+  queryId?: string
+  subquestionId?: string
+}
+
+export interface ResearchSubQuestion {
+  id: string
+  text: string
+}
+
+export interface ResearchPlan {
+  id: string
+  question: string
+  scope?: string
+  subQuestions: ResearchSubQuestion[]
+}
+
+export interface SearchQuery {
+  id: string
+  subquestionId: string
+  query: string
+}
+
+export interface Evidence {
+  id: string
+  sourceId: string
+  statement: string
+  excerpt?: string
+  location?: string
+  supportsClaims: string[]
+  contradictsClaims: string[]
+  confidence: number
+}
+
+export interface ResearchGap {
+  id: string
+  question: string
+  importance: number
+  relatedClaims: string[]
+  suggestedResearchQueries: string[]
 }
 
 export interface Claim {
@@ -80,6 +168,8 @@ export interface Claim {
   statement: string
   sources: string[]
   evidence: string[]
+  evidenceIds?: string[]
+  subquestionIds?: string[]
   confidence: number
   status: ClaimStatus
   knowledge: KnowledgeLevel
@@ -91,6 +181,9 @@ export interface Hypothesis {
   basis: string[]
   supportingClaims: string[]
   contradictingClaims: string[]
+  supportingEvidence: string[]
+  contradictingEvidence: string[]
+  researchGaps: string[]
   confidence: number
   status: HypothesisStatus
   assumptions: string[]
@@ -137,8 +230,53 @@ export interface ResearchOutput {
   summary: string
 }
 
+export interface HypothesesVerificationOutput {
+  verifications: HypothesisVerification[]
+}
+
+export interface HypothesisVerification {
+  hypothesisId: string
+  status: HypothesisVerificationStatus
+  confidence: number
+  supportingEvidence: string[]
+  contradictingEvidence: string[]
+  researchGaps: string[]
+  rationale: string
+}
+
 export interface ClaimsOutput {
   claims: Claim[]
+}
+
+export interface ContradictionsOutput {
+  contradictions: Contradiction[]
+}
+
+export interface ResearchGapsOutput {
+  gaps: ResearchGap[]
+}
+
+export interface EvidenceOutput {
+  evidence: Evidence[]
+}
+
+export interface ResearchPlanOutput {
+  plan: ResearchPlan
+}
+
+/**
+ * The complete output of the Evidence & Research Engine. It is a superset of
+ * the legacy ResearchOutput (`sources` + `summary`) so downstream pipeline
+ * stages keep working unchanged.
+ */
+export interface ResearchBundle extends ResearchOutput {
+  question: string
+  plan: ResearchPlan
+  queries: SearchQuery[]
+  evidence: Evidence[]
+  claims: Claim[]
+  contradictions: Contradiction[]
+  gaps: ResearchGap[]
 }
 
 export interface HypothesesOutput {
@@ -161,9 +299,13 @@ export interface VisualOutput {
 }
 
 export type Contradiction = {
+  id: string
   claimA: string
   claimB: string
-  note: string
+  severity: ContradictionSeverity
+  classification: ContradictionKind
+  explanation: string
+  relatedEvidence?: string[]
 }
 
 export type NarrativeIssue = {

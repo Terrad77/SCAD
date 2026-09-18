@@ -1,16 +1,27 @@
 import { StructuredAgent, readPromptFile } from "./structured-agent.js"
 import { JsonMemoryStore } from "./memory/json-memory.js"
 import { Pipeline, AutoApprover, ApprovalGate, type PipelineArtifacts } from "./pipeline.js"
-import { ResearchAgent } from "../agents/research/research.js"
+import { ResearchEngine, type ResearchEngineOptions } from "../agents/research/research-engine.js"
 import { ClaimsAgent } from "../agents/claims/claims.js"
 import { HypothesisAgent } from "../agents/hypothesis/hypothesis.js"
+import { verifyHypotheses } from "../agents/hypothesis/verify.js"
 import { FactCheckEngine } from "../agents/fact-check/fact-check.js"
 import { NarrativeAgent } from "../agents/narrative/narrative.js"
 import { VisualAgent } from "../agents/visual/visual.js"
 import { SelfCheckEngine } from "../agents/self-check/self-check.js"
+import { TraceService } from "./trace.js"
 import { buildTraceabilityReport } from "./traceability.js"
 import type { LLMProvider } from "../providers/llm/llm.js"
-import type { ClaimsOutput, Narrative, ResearchOutput, VisualOutput } from "./schemas.js"
+import { MockSearchProvider } from "../providers/search/mock-search-provider.js"
+import type { SearchProvider } from "../providers/search/search-provider.js"
+import type {
+  ClaimsOutput,
+  HypothesisVerification,
+  HypothesesOutput,
+  Narrative,
+  ResearchBundle,
+  VisualOutput,
+} from "./schemas.js"
 
 export interface DocumentaryOptions {
   provider: LLMProvider
@@ -19,10 +30,30 @@ export interface DocumentaryOptions {
   title: string
   approvals?: ApprovalGate
   force?: boolean
+  /** Search backend for the Evidence & Research Engine (defaults to mock). */
+  search?: SearchProvider
+  research?: Pick<
+    ResearchEngineOptions,
+    "maxSubQuestions" | "maxFollowUpRounds" | "followUpLimit" | "maxSourcesPerQuery"
+  >
+}
+
+export interface HypothesesWithVerifications extends HypothesesOutput {
+  verifications?: HypothesisVerification[]
 }
 
 export interface DocumentaryResult extends PipelineArtifacts {
   traceability: ReturnType<typeof buildTraceabilityReport>
+  hypothesisVerifications?: HypothesisVerification[]
+}
+
+/** Narrowing check: is this (legacy) research artifact actually a ResearchBundle? */
+function isResearchBundle(research: unknown): research is ResearchBundle {
+  return Boolean(
+    research &&
+    typeof research === "object" &&
+    Array.isArray((research as { claims?: unknown }).claims),
+  )
 }
 
 /** Wires every agent and engine stage into the resumable pipeline. */
@@ -33,8 +64,14 @@ export async function runDocumentaryPipeline(
   const memory = new JsonMemoryStore(options.memoryDir)
   const approvals = options.approvals ?? new AutoApprover()
   const agent = new StructuredAgent(options.provider, readPromptFile)
+  const search = options.search ?? new MockSearchProvider()
 
-  const researchAgent = new ResearchAgent(agent)
+  const researchEngine = new ResearchEngine({
+    question: options.question,
+    agent,
+    search,
+    ...(options.research ?? {}),
+  })
   const claimsAgent = new ClaimsAgent(agent)
   const hypothesisAgent = new HypothesisAgent(agent)
   const narrativeAgent = new NarrativeAgent(agent)
@@ -46,27 +83,39 @@ export async function runDocumentaryPipeline(
     async (stage, context) => {
       switch (stage) {
         case "research":
-          return researchAgent.run({
-            question: options.question,
-            title: options.title,
-          })
+          return researchEngine.run()
         case "claims": {
-          const research = context.research as ResearchOutput
+          const research = context.research as ResearchBundle
+          if (research.claims && research.claims.length > 0) {
+            // Deterministic passthrough: evidence-backed claims from research.
+            return { claims: research.claims }
+          }
+          // Legacy research artifact (no claims) — fall back to the LLM claims stage.
           return claimsAgent.run({ question: options.question, research })
         }
         case "hypotheses": {
           const claims = context.claims as ClaimsOutput
-          return hypothesisAgent.run({ question: options.question, claims })
+          const research = context.research as ResearchBundle
+          const output = await hypothesisAgent.run({
+            question: options.question,
+            claims,
+            research,
+          })
+          const result = verifyHypotheses({
+            hypotheses: output.hypotheses,
+            research: research && research.claims ? research : undefined,
+          })
+          return { ...output, verifications: result.verifications } as HypothesesWithVerifications
         }
         case "factCheck": {
-          const research = context.research as ResearchOutput
+          const research = context.research as ResearchBundle
           const claims = context.claims as ClaimsOutput
           return { assessments: new FactCheckEngine(research).run(claims.claims) }
         }
         case "narrative": {
-          const research = context.research as ResearchOutput
+          const research = context.research as ResearchBundle
           const claims = context.claims as ClaimsOutput
-          const hypotheses = context.hypotheses as PipelineArtifacts["hypotheses"]
+          const hypotheses = context.hypotheses as HypothesesWithVerifications
           return narrativeAgent.run({
             question: options.question,
             title: options.title,
@@ -86,11 +135,13 @@ export async function runDocumentaryPipeline(
           const factCheck = context.factCheck as {
             assessments?: Array<{ claimId: string; verdict: string }>
           }
+          const research = context.research as ResearchBundle
           return new SelfCheckEngine().run({
             claims: claims.claims,
             narrative,
             shots: visual.shots,
             assessments: factCheck?.assessments,
+            research: research && research.claims ? research : undefined,
           })
         }
         default:
@@ -101,13 +152,27 @@ export async function runDocumentaryPipeline(
   )
 
   const artifacts = await pipeline.run(options.force ?? false)
-  const research = artifacts.research!
+  const research = artifacts.research as ResearchBundle | undefined
   const claims = artifacts.claims!
   const narrative = artifacts.narrative!
   const visual = artifacts.visual!
+  const hypotheses = artifacts.hypotheses as HypothesesWithVerifications | undefined
+  const verifications = hypotheses?.verifications ?? []
 
-  const traceability = buildTraceabilityReport(visual.shots, narrative, claims.claims, research)
-  return { ...artifacts, traceability }
+  const traceability = isResearchBundle(research)
+    ? new TraceService(research, verifications).report(narrative, visual.shots)
+    : buildTraceabilityReport(
+        visual.shots,
+        narrative,
+        claims.claims,
+        research ?? { sources: [], summary: "" },
+      )
+
+  return {
+    ...artifacts,
+    traceability,
+    ...(verifications.length > 0 ? { hypothesisVerifications: verifications } : {}),
+  }
 }
 
 /** Renders a human-readable script markdown from the approved narrative. */

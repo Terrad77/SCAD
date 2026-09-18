@@ -1,4 +1,14 @@
-import type { Claim, Narrative, ResearchOutput, Shot } from "./schemas.js"
+import type {
+  Claim,
+  Contradiction,
+  Evidence,
+  HypothesisVerification,
+  Narrative,
+  ResearchOutput,
+  ResearchGap,
+  Shot,
+  Source,
+} from "./schemas.js"
 
 export interface TraceEntry {
   shotId: string
@@ -11,6 +21,12 @@ export interface TraceEntry {
   sourceTitles: string[]
   evidence: string[]
   confidence: number
+  /** Evidence Engine extras (optional for backward compatibility). */
+  evidenceIds?: string[]
+  evidenceStatements?: string[]
+  contradictionIds?: string[]
+  gapIds?: string[]
+  verification?: { status: string; confidence: number }
 }
 
 export interface TraceabilityReport {
@@ -23,18 +39,50 @@ export interface TraceabilityReport {
   }
 }
 
+export interface TraceExtras {
+  evidence?: Evidence[]
+  contradictions?: Contradiction[]
+  gaps?: ResearchGap[]
+  verifications?: HypothesisVerification[]
+  sources?: Source[]
+}
+
+function findVerification(
+  claimIds: string[],
+  claimEvidenceIds: string[],
+  verifications: HypothesisVerification[],
+): HypothesisVerification | undefined {
+  return verifications.find(
+    (v) =>
+      claimIds.includes(v.hypothesisId) ||
+      (claimEvidenceIds.length > 0 &&
+        v.supportingEvidence.some((eid) => claimEvidenceIds.includes(eid))),
+  )
+}
+
+function verificationSummary(
+  v: HypothesisVerification | undefined,
+): { status: string; confidence: number } | undefined {
+  return v ? { status: v.status, confidence: v.confidence } : undefined
+}
+
 /**
  * Builds a full traceability chain:
  * Shot → Narrative sentence → Claim → Evidence → Source.
+ * When a ResearchBundle (evidence, gaps, contradictions, verifications) is
+ * provided every entry is enriched with the evidence statements that back its
+ * claims, plus any contradictions or research gaps touching those claims.
  */
 export function buildTraceabilityReport(
   shots: Shot[],
   narrative: Narrative,
   claims: Claim[],
   research: ResearchOutput,
+  extras: TraceExtras = {},
 ): TraceabilityReport {
   const claimMap = new Map(claims.map((c) => [c.id, c]))
   const sourceMap = new Map(research.sources.map((s) => [s.id, s]))
+  const evidenceById = new Map((extras.evidence ?? []).map((e) => [e.id, e]))
   const sentenceMap = new Map(
     narrative.sections.flatMap((s) => s.sentences.map((sn) => [sn.id, sn])),
   )
@@ -44,6 +92,28 @@ export function buildTraceabilityReport(
     const sentence = sentenceMap.get(sentenceId)
     const claimIds = sentence?.claimIds ?? []
     const resolvedClaims = claimIds.map((id) => claimMap.get(id)).filter(Boolean) as Claim[]
+
+    const resolvedEvidence = extras.evidence
+      ? resolvedClaims.flatMap((c) =>
+          (c.evidenceIds ?? [])
+            .map((id) => evidenceById.get(id))
+            .filter((e): e is Evidence => Boolean(e)),
+        )
+      : []
+    const contradictionIds = extras.contradictions
+      ? extras.contradictions
+          .filter((c) => claimIds.includes(c.claimA) || claimIds.includes(c.claimB))
+          .map((c) => c.id)
+      : []
+    const gapIds = extras.gaps
+      ? extras.gaps
+          .filter((g) => g.relatedClaims.some((id) => claimIds.includes(id)))
+          .map((g) => g.id)
+      : []
+    const claimEvidenceIds = resolvedClaims.flatMap((c) => c.evidenceIds ?? [])
+    const verification = extras.verifications
+      ? verificationSummary(findVerification(claimIds, claimEvidenceIds, extras.verifications))
+      : undefined
 
     return {
       shotId: shot.id,
@@ -60,6 +130,15 @@ export function buildTraceabilityReport(
       confidence: resolvedClaims.length
         ? resolvedClaims.reduce((s, c) => s + c.confidence, 0) / resolvedClaims.length
         : 0,
+      ...(extras.evidence
+        ? {
+            evidenceIds: resolvedEvidence.map((e) => e.id),
+            evidenceStatements: resolvedEvidence.map((e) => e.statement),
+          }
+        : {}),
+      ...(extras.contradictions ? { contradictionIds } : {}),
+      ...(extras.gaps ? { gapIds } : {}),
+      ...(extras.verifications && verification ? { verification } : {}),
     }
   })
 

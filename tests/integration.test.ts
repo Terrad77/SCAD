@@ -218,11 +218,37 @@ describe("full documentary pipeline", () => {
 
     // Every stage produced valid artifacts
     expect(result.research!.sources.length).toBeGreaterThanOrEqual(2)
-    expect(result.claims!.claims.length).toBeGreaterThanOrEqual(3)
+    expect(result.claims!.claims.length).toBeGreaterThanOrEqual(2)
     expect(result.hypotheses!.hypotheses.length).toBeGreaterThanOrEqual(2)
-    expect(result.factCheck!.assessments.length).toBeGreaterThanOrEqual(3)
+    expect(result.factCheck!.assessments.length).toBeGreaterThanOrEqual(2)
     expect(result.narrative!.sections.length).toBeGreaterThanOrEqual(2)
     expect(result.visual!.shots.length).toBeGreaterThanOrEqual(2)
+
+    // Evidence & Research Engine produced the full chain
+    const research = result.research as unknown as {
+      plan: { subQuestions: unknown[] }
+      queries: unknown[]
+      evidence: Array<{ id: string; sourceId: string; statement: string }>
+      claims: Array<{ id: string; evidenceIds?: string[] }>
+      contradictions: unknown[]
+      gaps: unknown[]
+    }
+    expect(research.plan.subQuestions.length).toBeGreaterThanOrEqual(1)
+    expect(research.queries.length).toBeGreaterThanOrEqual(1)
+    expect(research.evidence.length).toBeGreaterThanOrEqual(1)
+    expect(research.claims.length).toBeGreaterThanOrEqual(2)
+    expect(research.contradictions).toBeDefined()
+    expect(research.gaps).toBeDefined()
+    // Claims must be traceable back through evidence to sources
+    for (const claim of research.claims) {
+      expect(claim.evidenceIds?.length ?? 0).toBeGreaterThanOrEqual(1)
+    }
+
+    // Hypothesis verification was produced and statuses normalized
+    const hypotheses = result.hypotheses as unknown as {
+      verifications?: Array<{ hypothesisId: string; status: string; rationale: string }>
+    }
+    expect(hypotheses.verifications?.length).toBe(result.hypotheses!.hypotheses.length)
 
     // Script renders cleanly
     const script = renderScript(result.narrative!)

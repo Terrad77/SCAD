@@ -190,6 +190,34 @@ export class HumanApprover implements ApprovalGate {
       "",
       ...src.slice(0, 10).map((s) => `  [${s.id}] "${s.title}"${s.url ? " — " + s.url : ""}`),
     ]
+    if (research && "evidence" in research) {
+      const bundle = research as unknown as {
+        evidence?: Array<{ id: string; sourceId: string; statement: string }>
+        claims?: Array<{ id: string; statement: string; confidence: number; knowledge: string }>
+        contradictions?: Array<{ id: string; severity: string; classification: string }>
+        gaps?: Array<{ id: string; importance: number; question: string }>
+      }
+      lines.push("", `Evidence: ${bundle.evidence?.length ?? 0}`, "")
+      for (const ev of (bundle.evidence ?? []).slice(0, 10)) {
+        lines.push(`  [${ev.id}] (source ${ev.sourceId}) ${ev.statement}`)
+      }
+      lines.push("", `Claims: ${bundle.claims?.length ?? 0}`, "")
+      for (const c of (bundle.claims ?? []).slice(0, 10)) {
+        lines.push(`  [${c.id}] ${c.statement}`)
+      }
+      if ((bundle.contradictions?.length ?? 0) > 0) {
+        lines.push("", `Contradictions: ${bundle.contradictions?.length}`, "")
+        for (const c of (bundle.contradictions ?? []).slice(0, 5)) {
+          lines.push(`  [${c.id}] ${c.severity} (${c.classification})`)
+        }
+      }
+      if ((bundle.gaps?.length ?? 0) > 0) {
+        lines.push("", `Research gaps: ${bundle.gaps?.length}`, "")
+        for (const g of (bundle.gaps ?? []).slice(0, 5)) {
+          lines.push(`  [${g.id}] importance ${g.importance.toFixed(2)} — ${g.question}`)
+        }
+      }
+    }
     return `${lines.join("\n")}\n`
   }
 

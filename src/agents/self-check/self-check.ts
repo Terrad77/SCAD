@@ -1,4 +1,12 @@
-import type { Claim, Narrative, SelfCheckItem, SelfCheckOutput, Shot } from "../../core/schemas.js"
+import type {
+  Claim,
+  Contradiction,
+  Narrative,
+  ResearchGap,
+  SelfCheckItem,
+  SelfCheckOutput,
+  Shot,
+} from "../../core/schemas.js"
 
 const SUPPORTED_VERDICTS = new Set(["SUPPORTED", "PARTIAL"])
 
@@ -6,6 +14,9 @@ const SUPPORTED_VERDICTS = new Set(["SUPPORTED", "PARTIAL"])
  * Deterministic self-check engine. Runs structural rules over claims, narrative
  * and shots to surface unsupported claims, contradictions, speculation presented
  * as fact, missing evidence and narrative problems.
+ *
+ * When a ResearchBundle is provided, evidence-chain checks are added: open
+ * high-importance research gaps and classified contradictions are surfaced.
  */
 export class SelfCheckEngine {
   run(input: {
@@ -13,6 +24,7 @@ export class SelfCheckEngine {
     narrative: Narrative
     shots: Shot[]
     assessments?: Array<{ claimId: string; verdict: string }>
+    research?: { gaps?: ResearchGap[]; contradictions?: Contradiction[] }
   }): SelfCheckOutput {
     const critical: SelfCheckItem[] = []
     const warnings: SelfCheckItem[] = []
@@ -57,8 +69,8 @@ export class SelfCheckEngine {
     }
 
     // Contradictions: claims that assert opposite statements on the same topic.
-    const contradictions = this.findContradictions(input.claims)
-    for (const { a, b } of contradictions) {
+    const heuristicContradictions = this.findContradictions(input.claims)
+    for (const { a, b } of heuristicContradictions) {
       warnings.push({
         severity: "warning",
         type: "contradiction",
@@ -131,6 +143,29 @@ export class SelfCheckEngine {
           detail: `Shot ${shot.id} references unknown narrative sentence ids: ${dangling.join(", ")}`,
         })
       }
+    }
+
+    // Evidence-chain checks from the research bundle
+    const gaps = input.research?.gaps ?? []
+    const contradictions = input.research?.contradictions ?? []
+    for (const gap of gaps) {
+      if (gap.importance < 0.75) continue
+      warnings.push({
+        severity: "warning",
+        type: "open-research-gap",
+        detail: `Open research gap (importance ${gap.importance.toFixed(2)}): ${gap.question}`,
+        ...(gap.relatedClaims.length > 0 ? { claimIds: gap.relatedClaims } : {}),
+      })
+    }
+    for (const c of contradictions) {
+      const item: SelfCheckItem = {
+        severity: c.severity === "HIGH" ? "critical" : "warning",
+        type: "classified-contradiction",
+        detail: `Contradiction ${c.id} (${c.severity}, ${c.classification}): ${c.explanation}`,
+        claimIds: [c.claimA, c.claimB],
+      }
+      if (item.severity === "critical") critical.push(item)
+      else warnings.push(item)
     }
 
     return { critical, warnings, info }

@@ -1,6 +1,20 @@
-import { cmdInit, cmdList, cmdDocumentary, cmdStage, parseArgs } from "./cli.js"
+import {
+  cmdInit,
+  cmdList,
+  cmdDocumentary,
+  cmdStage,
+  cmdSources,
+  cmdEvidence,
+  cmdContradictions,
+  cmdGaps,
+  cmdTrace,
+  parseArgs,
+} from "./cli.js"
 
 const STAGE_COMMANDS = new Set(["research", "claims", "hypotheses", "narrative", "shots", "check"])
+
+const USAGE =
+  "Usage: scad <init|research|claims|hypotheses|narrative|shots|check|sources|evidence|gaps|contradictions|trace|documentary|list> [project-name] [--force] [--interactive]"
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -22,14 +36,22 @@ export async function main(argv: string[]): Promise<number> {
         parsed.interactive,
       )
     }
+    case "sources":
+      return cmdSources(rest[0])
+    case "evidence":
+      return cmdEvidence(rest[0])
+    case "gaps":
+      return cmdGaps(rest[0])
+    case "contradictions":
+      return cmdContradictions(rest[0])
+    case "trace":
+      return cmdTrace(rest[0])
     default: {
       if (command && STAGE_COMMANDS.has(command)) {
         const parsed = parseArgs(rest)
         return cmdStage(command, parsed.name, parsed.force)
       }
-      console.error(
-        "Usage: scad <init|research|claims|hypotheses|narrative|shots|check|documentary|list> [project-name] [--force] [--interactive]",
-      )
+      console.error(USAGE)
       return 1
     }
   }

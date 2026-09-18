@@ -1,10 +1,12 @@
 import { HypothesesOutputSchema } from "../../core/schemas.js"
 import { StructuredAgent } from "../../core/structured-agent.js"
-import type { HypothesesOutput, ClaimsOutput } from "../../core/schemas.js"
+import type { HypothesesOutput, ClaimsOutput, ResearchOutput } from "../../core/schemas.js"
 
 export interface HypothesesInput {
   question: string
   claims: ClaimsOutput
+  /** Research bundle (superset of ResearchOutput) with the evidence chain. */
+  research?: ResearchOutput & { evidence?: unknown[]; gaps?: unknown[] }
 }
 
 export class HypothesisAgent {
