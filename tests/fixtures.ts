@@ -1,4 +1,12 @@
-import type { Claim, Narrative, ResearchOutput, Shot, Hypothesis } from "../../src/core/schemas.js"
+import type {
+  Claim,
+  Evidence,
+  Narrative,
+  ResearchBundle,
+  ResearchOutput,
+  Shot,
+  Hypothesis,
+} from "../../src/core/schemas.js"
 
 export function makeSource(over: Partial<ResearchOutput["sources"][number]> = {}) {
   return {
@@ -101,4 +109,73 @@ export function makeShot(over: Partial<Shot> = {}): Shot {
 
 export function makeShots(over: Partial<ReturnType<typeof makeNarrative>> = {}): { shots: Shot[] } {
   return { shots: [makeShot()], ...over }
+}
+
+export function makeEvidence(over: Partial<Evidence> = {}): Evidence {
+  return {
+    id: "EV_001",
+    sourceId: "SRC_001",
+    statement: "Genomic data shows interbreeding between hominins.",
+    excerpt: "Genomic data shows interbreeding.",
+    supportsClaims: ["CLM_001"],
+    contradictsClaims: [],
+    confidence: 0.85,
+    ...over,
+  }
+}
+
+/** Deterministic, structurally-independent ResearchBundle for v0.4 tests. */
+export function makeResearchBundle(over: Partial<ResearchBundle> = {}): ResearchBundle {
+  return {
+    question: "Can humanity become a new species?",
+    summary: "Two independent sources support the interbreeding claim.",
+    plan: {
+      id: "PLAN_001",
+      question: "Can humanity become a new species?",
+      subQuestions: [
+        { id: "SUB_Q_001", text: "Did interbreeding happen?" },
+        { id: "SUB_Q_002", text: "Does isolation drive divergence?" },
+      ],
+    },
+    queries: [
+      { id: "QRY_001", subquestionId: "SUB_Q_001", query: "interbreeding" },
+      { id: "QRY_002", subquestionId: "SUB_Q_002", query: "isolation divergence" },
+    ],
+    sources: [
+      {
+        id: "SRC_001",
+        title: "Reuters Science Desk",
+        url: "https://reuters.com/science/interbreeding",
+        publisher: "Reuters",
+        type: "NEWS",
+        reliability: 0.7,
+      },
+      {
+        id: "SRC_002",
+        title: "Nature Journal",
+        url: "https://nature.com/articles/hominin",
+        publisher: "Nature Portfolio",
+        type: "JOURNAL",
+        reliability: 0.9,
+      },
+    ],
+    evidence: [
+      makeEvidence({ id: "EV_001", sourceId: "SRC_001" }),
+      makeEvidence({
+        id: "EV_002",
+        sourceId: "SRC_002",
+        statement: "Neanderthal admixture is documented in modern genomes.",
+      }),
+    ],
+    claims: [
+      makeClaim({
+        evidence: ["Genomic data shows interbreeding."],
+        evidenceIds: ["EV_001", "EV_002"],
+        subquestionIds: ["SUB_Q_001"],
+      }),
+    ],
+    contradictions: [],
+    gaps: [],
+    ...over,
+  }
 }

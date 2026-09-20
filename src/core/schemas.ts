@@ -1,14 +1,19 @@
 import { z } from "zod"
 import {
   APPROVAL_POINTS,
+  CLAIM_ASSESSMENT_STATUSES,
   CLAIM_STATUSES,
+  COMPLETENESS_STATUSES,
+  CONTRADICTION_ANALYSIS_KINDS,
   CONTRADICTION_KINDS,
   CONTRADICTION_SEVERITIES,
   HYPOTHESIS_STATUSES,
   HYPOTHESIS_VERIFICATION_STATUSES,
   KNOWLEDGE_LEVELS,
+  SOURCE_RELATIONSHIPS,
   SOURCE_TYPES,
   STAGES,
+  UNCERTAINTY_KINDS,
   VISUAL_TYPES,
 } from "./types.js"
 
@@ -20,6 +25,11 @@ export type {
   VisualType,
   Stage,
   ApprovalPoint,
+  ClaimAssessmentStatus,
+  CompletenessStatus,
+  ContradictionAnalysisKind,
+  SourceRelationship,
+  UncertaintyKind,
 } from "./types.js"
 export * from "./types.js"
 
@@ -30,9 +40,15 @@ export const STAGES_ENUM = z.enum(STAGES)
 export const SOURCE_TYPES_ENUM = z.enum(SOURCE_TYPES)
 export const KNOWLEDGE_LEVELS_ENUM = z.enum(KNOWLEDGE_LEVELS)
 export const CLAIM_STATUSES_ENUM = z.enum(CLAIM_STATUSES)
+export const CLAIM_ASSESSMENT_STATUSES_ENUM = z.enum(CLAIM_ASSESSMENT_STATUSES)
 export const HYPOTHESIS_STATUSES_ENUM = z.enum(HYPOTHESIS_STATUSES)
 export const VISUAL_TYPES_ENUM = z.enum(VISUAL_TYPES)
 export const APPROVAL_POINTS_ENUM = z.enum(APPROVAL_POINTS)
+export const SOURCE_RELATIONSHIPS_ENUM = z.enum(SOURCE_RELATIONSHIPS)
+export const CONTRADICTION_ANALYSIS_KINDS_ENUM = z.enum(CONTRADICTION_ANALYSIS_KINDS)
+export const COMPLETENESS_STATUSES_ENUM = z.enum(COMPLETENESS_STATUSES)
+export const UNCERTAINTY_KINDS_ENUM = z.enum(UNCERTAINTY_KINDS)
+export const CONTRADICTION_SEVERITIES_ENUM = z.enum(CONTRADICTION_SEVERITIES)
 
 export const SourceSchema = z.object({
   id: idSchema,
@@ -158,6 +174,155 @@ export const HypothesisSchema = z.object({
 })
 export type Hypothesis = z.infer<typeof HypothesisSchema>
 
+// ---------------------------------------------------------------------------
+// v0.4 — Research Intelligence & Verification schemas
+// ---------------------------------------------------------------------------
+
+export const EvidenceQualityDimensionsSchema = z.object({
+  reliability: unitInterval,
+  strength: unitInterval,
+  directness: unitInterval,
+  specificity: unitInterval,
+  freshness: unitInterval,
+})
+export type EvidenceQualityDimensions = z.infer<typeof EvidenceQualityDimensionsSchema>
+
+export const EvidenceQualitySchema = z.object({
+  evidenceId: idSchema,
+  sourceId: idSchema,
+  dimensions: EvidenceQualityDimensionsSchema,
+  overall: unitInterval,
+  reasons: z.array(z.string().min(1)),
+})
+export type EvidenceQuality = z.infer<typeof EvidenceQualitySchema>
+
+export const SourceRelationshipRecordSchema = z.object({
+  sourceA: idSchema,
+  sourceB: idSchema,
+  relationship: z.enum(SOURCE_RELATIONSHIPS),
+  basis: z.string().min(1),
+})
+export type SourceRelationshipRecord = z.infer<typeof SourceRelationshipRecordSchema>
+
+export const SourceIndependenceResultSchema = z.object({
+  relationships: z.array(SourceRelationshipRecordSchema),
+  totalSources: z.number().int().nonnegative(),
+  independentSources: z.number().int().nonnegative(),
+  dependentSources: z.number().int().nonnegative(),
+  unknownSources: z.number().int().nonnegative(),
+  independenceRatio: unitInterval,
+  reasons: z.array(z.string().min(1)),
+})
+export type SourceIndependenceResult = z.infer<typeof SourceIndependenceResultSchema>
+
+export const ClaimConfidenceAssessmentSchema = z.object({
+  claimId: idSchema,
+  status: z.enum(CLAIM_ASSESSMENT_STATUSES),
+  confidence: unitInterval,
+  supportStrength: unitInterval,
+  contradictionStrength: unitInterval,
+  independentSourceCount: z.number().int().nonnegative(),
+  evidenceCount: z.number().int().nonnegative(),
+  sourceCount: z.number().int().nonnegative(),
+  unresolvedGapCount: z.number().int().nonnegative(),
+  completenessImpact: z.number().min(-1).max(1),
+  reasons: z.array(z.string().min(1)),
+})
+export type ClaimConfidenceAssessment = z.infer<typeof ClaimConfidenceAssessmentSchema>
+
+export const ContradictionContextSchema = z.object({
+  type: z.string().min(1),
+  detail: z.string().optional(),
+})
+export type ContradictionContext = z.infer<typeof ContradictionContextSchema>
+
+export const ContradictionAnalysisSchema = z.object({
+  contradictionId: idSchema,
+  claimA: idSchema,
+  claimB: idSchema,
+  severity: z.enum(CONTRADICTION_SEVERITIES),
+  classification: z.enum(CONTRADICTION_KINDS),
+  analysis: z.enum(CONTRADICTION_ANALYSIS_KINDS),
+  context: ContradictionContextSchema.optional(),
+  evidenceQualityA: unitInterval,
+  evidenceQualityB: unitInterval,
+  confidence: unitInterval,
+  reasons: z.array(z.string().min(1)),
+})
+export type ContradictionAnalysis = z.infer<typeof ContradictionAnalysisSchema>
+
+export const CompletenessDimensionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  score: unitInterval,
+  covered: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  reason: z.string().min(1),
+})
+export type CompletenessDimension = z.infer<typeof CompletenessDimensionSchema>
+
+export const ResearchCompletenessSchema = z.object({
+  score: unitInterval,
+  status: z.enum(COMPLETENESS_STATUSES),
+  dimensions: z.array(CompletenessDimensionSchema),
+  unresolvedGaps: z.array(ResearchGapSchema),
+  unresolvedContradictions: z.array(ContradictionSchema),
+  recommendations: z.array(z.string().min(1)),
+})
+export type ResearchCompleteness = z.infer<typeof ResearchCompletenessSchema>
+
+export const UncertaintySchema = z.object({
+  id: idSchema,
+  kind: z.enum(UNCERTAINTY_KINDS),
+  subjectType: z.enum(["claim", "hypothesis", "evidence", "research"]),
+  subjectId: idSchema,
+  detail: z.string().min(1),
+  evidenceIds: z.array(idSchema).optional(),
+})
+export type Uncertainty = z.infer<typeof UncertaintySchema>
+
+export const StoppingCriteriaResultSchema = z.object({
+  continueResearch: z.boolean(),
+  reasons: z.array(z.string().min(1)),
+  limitsRespected: z.boolean(),
+})
+export type StoppingCriteriaResult = z.infer<typeof StoppingCriteriaResultSchema>
+
+export const VerificationResultSchema = z.object({
+  hypothesisId: idSchema,
+  status: z.enum(HYPOTHESIS_VERIFICATION_STATUSES),
+  confidence: unitInterval,
+  supportingEvidence: z.array(idSchema),
+  contradictingEvidence: z.array(idSchema),
+  researchGaps: z.array(idSchema),
+  rationale: z.string().min(1),
+  evidenceQuality: z.array(EvidenceQualitySchema).optional(),
+  alternativeExplanations: z.array(z.string().min(1)).optional(),
+  independentSourceCount: z.number().int().nonnegative().optional(),
+  contradictions: z.array(ContradictionAnalysisSchema).optional(),
+  uncertainties: z.array(UncertaintySchema).optional(),
+})
+export type VerificationResult = z.infer<typeof VerificationResultSchema>
+
+export const ResearchIntelligenceReportSchema = z.object({
+  question: z.string().min(1),
+  questionId: idSchema,
+  generatedAt: z.string().min(1),
+  completeness: ResearchCompletenessSchema,
+  claims: z.array(ClaimConfidenceAssessmentSchema),
+  evidenceQuality: z.array(EvidenceQualitySchema),
+  sourceIndependence: SourceIndependenceResultSchema,
+  contradictions: z.array(ContradictionAnalysisSchema),
+  hypotheses: z.array(VerificationResultSchema),
+  unresolvedGaps: z.array(ResearchGapSchema),
+  unresolvedContradictions: z.array(ContradictionSchema),
+  uncertainties: z.array(UncertaintySchema),
+  continueResearch: z.boolean(),
+  stopping: StoppingCriteriaResultSchema,
+  recommendations: z.array(z.string().min(1)),
+})
+export type ResearchIntelligenceReport = z.infer<typeof ResearchIntelligenceReportSchema>
+
 export const HypothesisVerificationSchema = z.object({
   hypothesisId: idSchema,
   status: z.enum(HYPOTHESIS_VERIFICATION_STATUSES),
@@ -166,6 +331,12 @@ export const HypothesisVerificationSchema = z.object({
   contradictingEvidence: z.array(idSchema),
   researchGaps: z.array(idSchema),
   rationale: z.string().min(1),
+  // v0.4 Verification 2.0 enrichment (all optional, computed deterministically).
+  evidenceQuality: z.array(EvidenceQualitySchema).optional(),
+  alternativeExplanations: z.array(z.string().min(1)).optional(),
+  independentSourceCount: z.number().int().nonnegative().optional(),
+  contradictions: z.array(ContradictionAnalysisSchema).optional(),
+  uncertainties: z.array(UncertaintySchema).optional(),
 })
 export type HypothesisVerification = z.infer<typeof HypothesisVerificationSchema>
 

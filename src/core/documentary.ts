@@ -9,6 +9,7 @@ import { FactCheckEngine } from "../agents/fact-check/fact-check.js"
 import { NarrativeAgent } from "../agents/narrative/narrative.js"
 import { VisualAgent } from "../agents/visual/visual.js"
 import { SelfCheckEngine } from "../agents/self-check/self-check.js"
+import { ResearchIntelligenceEngine } from "../agents/research/research-intelligence.js"
 import { TraceService } from "./trace.js"
 import { buildTraceabilityReport } from "./traceability.js"
 import type { LLMProvider } from "../providers/llm/llm.js"
@@ -21,6 +22,7 @@ import type {
   HypothesesOutput,
   Narrative,
   ResearchBundle,
+  ResearchIntelligenceReport,
   VisualOutput,
 } from "./schemas.js"
 
@@ -55,6 +57,8 @@ export interface HypothesesWithVerifications extends HypothesesOutput {
 export interface DocumentaryResult extends PipelineArtifacts {
   traceability: ReturnType<typeof buildTraceabilityReport>
   hypothesisVerifications?: HypothesisVerification[]
+  /** v0.4 Research Intelligence report (deterministic, when research is a bundle). */
+  intelligence?: ResearchIntelligenceReport
 }
 
 /** Narrowing check: is this (legacy) research artifact actually a ResearchBundle? */
@@ -182,10 +186,26 @@ export async function runDocumentaryPipeline(
         research ?? { sources: [], summary: "" },
       )
 
+  let intelligence: ResearchIntelligenceReport | undefined
+  if (isResearchBundle(research)) {
+    intelligence = new ResearchIntelligenceEngine({
+      research,
+      verifications,
+      limits: {
+        maxSources: options.research?.maxSources,
+        maxSubQuestions: options.research?.maxSubQuestions,
+        maxFollowUpRounds: options.research?.maxFollowUpRounds,
+        maxIterations: options.research?.maxFollowUpRounds,
+      },
+    }).run()
+    await memory.save("intelligence", intelligence)
+  }
+
   return {
     ...artifacts,
     traceability,
     ...(verifications.length > 0 ? { hypothesisVerifications: verifications } : {}),
+    ...(intelligence ? { intelligence } : {}),
   }
 }
 

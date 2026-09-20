@@ -1,31 +1,17 @@
 import type { Source, SourceType } from "../../core/schemas.js"
 import type { SearchResult } from "../../providers/search/search-provider.js"
 import { clamp } from "../../core/evidence/confidence.js"
+import { SOURCE_RELIABILITY_BY_TYPE } from "../../core/evidence/weights.js"
 
 /**
  * Transparent source reliability model. Rather than a universal website
  * ranking, base reliability is derived from the source *type* and should never
  * be treated as absolute truth. Everything here is explainable.
+ *
+ * The type→reliability map lives in `core/evidence/weights.ts` so the whole
+ * Research Intelligence layer shares one source of truth.
  */
-export const RELIABILITY_BY_TYPE: Record<SourceType, number> = {
-  SCIENTIFIC_PAPER: 0.85,
-  GOVERNMENT: 0.8,
-  UNIVERSITY: 0.8,
-  DATABASE: 0.75,
-  DOCUMENTATION: 0.7,
-  BOOK: 0.65,
-  PAPER: 0.85,
-  ARTICLE: 0.6,
-  NEWS: 0.55,
-  DOCUMENTARY: 0.6,
-  VIDEO: 0.5,
-  INTERVIEW: 0.6,
-  WEB: 0.45,
-  BLOG: 0.35,
-  SOCIAL_MEDIA: 0.25,
-  OTHER: 0.4,
-  PERSONAL_KNOWLEDGE: 0.2,
-}
+export const RELIABILITY_BY_TYPE = SOURCE_RELIABILITY_BY_TYPE
 
 /** Heuristic type inference from the result URL and title. */
 export function inferSourceType(result: Pick<SearchResult, "url" | "title">): SourceType {

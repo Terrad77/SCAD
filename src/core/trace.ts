@@ -1,15 +1,20 @@
 import type {
   Claim,
+  ClaimConfidenceAssessment,
   Contradiction,
+  ContradictionAnalysis,
   Evidence,
+  EvidenceQuality,
   HypothesisVerification,
   Narrative,
   ResearchBundle,
   ResearchGap,
+  ResearchIntelligenceReport,
   ResearchSubQuestion,
   SearchQuery,
   Shot,
   Source,
+  Uncertainty,
 } from "./schemas.js"
 import { buildTraceabilityReport, type TraceabilityReport } from "./traceability.js"
 
@@ -20,6 +25,11 @@ export interface ClaimTrace {
   contradictions: Contradiction[]
   gaps: ResearchGap[]
   verifications: HypothesisVerification[]
+  /** v0.4 Research Intelligence enrichment (present when a report is loaded). */
+  assessment?: ClaimConfidenceAssessment
+  evidenceQuality?: EvidenceQuality[]
+  contradictionAnalyses?: ContradictionAnalysis[]
+  uncertainties?: Uncertainty[]
 }
 
 export interface SourceTrace {
@@ -53,6 +63,7 @@ export class TraceService {
   constructor(
     private readonly research: ResearchBundle,
     private readonly verifications: HypothesisVerification[] = [],
+    private readonly intelligence?: ResearchIntelligenceReport,
   ) {}
 
   traceClaim(claimId: string): ClaimTrace | undefined {
@@ -78,6 +89,29 @@ export class TraceService {
       ),
       gaps: this.research.gaps.filter((g) => g.relatedClaims.includes(claimId)),
       verifications: this.verifications.filter((v) => verificationConcernsClaim(v, claim)),
+      ...this.enrich(claimId, evidence),
+    }
+  }
+
+  /** Attaches v0.4 intelligence facts when a report is available. */
+  private enrich(claimId: string, evidence: Evidence[]): Partial<ClaimTrace> {
+    const intelligence = this.intelligence
+    if (!intelligence) return {}
+    const assessment = intelligence.claims.find((a) => a.claimId === claimId)
+    const evidenceQuality = evidence
+      .map((e) => intelligence.evidenceQuality.find((q) => q.evidenceId === e.id))
+      .filter((q): q is EvidenceQuality => Boolean(q))
+    const contradictionAnalyses = intelligence.contradictions.filter(
+      (a) => a.claimA === claimId || a.claimB === claimId,
+    )
+    const uncertainties = intelligence.uncertainties.filter(
+      (u) => u.subjectType === "claim" && u.subjectId === claimId,
+    )
+    return {
+      ...(assessment ? { assessment } : {}),
+      ...(evidenceQuality.length > 0 ? { evidenceQuality } : {}),
+      ...(contradictionAnalyses.length > 0 ? { contradictionAnalyses } : {}),
+      ...(uncertainties.length > 0 ? { uncertainties } : {}),
     }
   }
 
@@ -175,6 +209,7 @@ export class TraceService {
       contradictions: this.research.contradictions,
       gaps: this.research.gaps,
       verifications: this.verifications,
+      ...(this.intelligence ? { intelligence: this.intelligence } : {}),
     })
   }
 }

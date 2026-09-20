@@ -21,7 +21,7 @@ import type { ContentProvider } from "../providers/content/content-provider.js"
 import { FileCache, defaultCacheDir } from "../providers/cache/file-cache.js"
 import { renderResearchReport } from "../agents/research/research-report.js"
 import { TraceService } from "../core/trace.js"
-import type { ResearchBundle } from "../core/schemas.js"
+import type { ResearchBundle, ResearchIntelligenceReport } from "../core/schemas.js"
 import type { HypothesisVerification } from "../core/schemas.js"
 
 const DATA_DIR = process.env.SCAD_DATA_DIR ?? "data/projects"
@@ -138,6 +138,9 @@ async function outputArtifacts(
       null,
       2,
     )
+  }
+  if (result.intelligence) {
+    extras["intelligence.json"] = JSON.stringify(result.intelligence, null, 2)
   }
   const files = await exportArtifacts(
     dir,
@@ -383,7 +386,8 @@ export async function cmdTrace(name: string | undefined): Promise<number> {
     return 1
   }
   const verifications = await readVerifications(dir.memoryDir)
-  const service = new TraceService(research, verifications)
+  const intelligence = await store.get<ResearchIntelligenceReport>("intelligence")
+  const service = new TraceService(research, verifications, intelligence ?? undefined)
   const report = service.report(
     narrative as Parameters<typeof renderScript>[0],
     (visual as { shots: Parameters<typeof service.report>[1] }).shots,
@@ -393,5 +397,72 @@ export async function cmdTrace(name: string | undefined): Promise<number> {
     `Traceability for "${name}": ${s.totalShots} shots, ${s.fullyTraced} fully traced, ${s.partiallyTraced} partial, ${s.untraced} untraced`,
   )
   await exportArtifacts(dir, {}, { "traceability.json": JSON.stringify(report, null, 2) })
+  return 0
+}
+
+const INTELLIGENCE_SUBCOMMANDS = [
+  "quality",
+  "completeness",
+  "verify",
+  "contradictions",
+  "uncertainty",
+]
+
+export async function cmdIntelligence(
+  name: string | undefined,
+  subcommand: string | undefined,
+): Promise<number> {
+  if (!name) {
+    console.error(
+      "Usage: scad intelligence <project-name> [quality|completeness|verify|contradictions|uncertainty]",
+    )
+    return 1
+  }
+  if (subcommand && !INTELLIGENCE_SUBCOMMANDS.includes(subcommand)) {
+    console.error(`Unknown intelligence view "${subcommand}".`)
+    return 1
+  }
+  const dir = projectDir(DATA_DIR, name)
+  const store = new JsonMemoryStore(dir.memoryDir)
+  const intelligence = await store.get<ResearchIntelligenceReport>("intelligence")
+  if (!intelligence) {
+    log(`No intelligence report for "${name}". Run "scad documentary ${name}" first.`)
+    return 1
+  }
+  await exportArtifacts(dir, {}, { "intelligence.json": JSON.stringify(intelligence, null, 2) })
+  if (subcommand === "quality") {
+    log(`Evidence quality for "${name}":`)
+    for (const q of intelligence.evidenceQuality) {
+      log(
+        `  [${q.evidenceId}] overall ${q.overall.toFixed(2)} (reliability ${q.dimensions.reliability.toFixed(2)}, strength ${q.dimensions.strength.toFixed(2)}, directness ${q.dimensions.directness.toFixed(2)}, specificity ${q.dimensions.specificity.toFixed(2)}, freshness ${q.dimensions.freshness.toFixed(2)})`,
+      )
+    }
+  } else if (subcommand === "completeness") {
+    const c = intelligence.completeness
+    log(
+      `Completeness for "${name}": ${c.score.toFixed(2)} (${c.status}) — ${c.dimensions.map((d) => `${d.label} ${d.score.toFixed(2)}`).join(", ")}`,
+    )
+  } else if (subcommand === "verify") {
+    log(`Hypothesis verification for "${name}" (${intelligence.hypotheses.length}):`)
+    for (const v of intelligence.hypotheses) {
+      log(
+        `  [${v.hypothesisId}] ${v.status} (${v.confidence.toFixed(2)}) independentSources ${v.independentSourceCount} — ${v.rationale.slice(0, 80)}`,
+      )
+    }
+  } else if (subcommand === "contradictions") {
+    log(`Contradiction analyses for "${name}" (${intelligence.contradictions.length}):`)
+    for (const a of intelligence.contradictions) {
+      log(`  [${a.contradictionId}] ${a.analysis} — ${a.reasons.join("; ")}`)
+    }
+  } else if (subcommand === "uncertainty") {
+    log(`Explicit uncertainty for "${name}" (${intelligence.uncertainties.length}):`)
+    for (const u of intelligence.uncertainties) {
+      log(`  [${u.id}] ${u.kind} — ${u.detail}`)
+    }
+  } else {
+    log(
+      `Intelligence for "${name}": completeness ${intelligence.completeness.score.toFixed(2)} (${intelligence.completeness.status}), ${intelligence.sourceIndependence.independentSources} independent / ${intelligence.sourceIndependence.dependentSources} dependent / ${intelligence.sourceIndependence.unknownSources} unknown sources, ${intelligence.unresolvedContradictions.length} unresolved contradictions, ${intelligence.unresolvedGaps.length} critical gaps, continueResearch ${intelligence.continueResearch}`,
+    )
+  }
   return 0
 }

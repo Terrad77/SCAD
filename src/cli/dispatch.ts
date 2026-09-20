@@ -8,12 +8,13 @@ import {
   cmdContradictions,
   cmdGaps,
   cmdTrace,
+  cmdIntelligence,
   parseArgs,
   STAGE_COMMANDS,
 } from "./cli.js"
 
 const USAGE =
-  "Usage: scad <init|research|claims|hypotheses|factCheck|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|documentary|list> [project-name] [--force] [--interactive] [--provider <mock|brave>]"
+  "Usage: scad <init|research|claims|hypotheses|factCheck|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|intelligence|documentary|list> [project-name] [quality|completeness|verify|contradictions|uncertainty] [--force] [--interactive] [--provider <mock|brave>]"
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -46,6 +47,8 @@ export async function main(argv: string[]): Promise<number> {
       return cmdContradictions(rest[0])
     case "trace":
       return cmdTrace(rest[0])
+    case "intelligence":
+      return cmdIntelligence(rest[0], rest[1])
     default: {
       if (command && STAGE_COMMANDS.has(command)) {
         const parsed = parseArgs(rest)

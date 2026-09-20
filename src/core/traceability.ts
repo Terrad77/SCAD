@@ -1,9 +1,11 @@
 import type {
   Claim,
+  ClaimConfidenceAssessment,
   Contradiction,
   Evidence,
   HypothesisVerification,
   Narrative,
+  ResearchIntelligenceReport,
   ResearchOutput,
   ResearchGap,
   Shot,
@@ -27,6 +29,9 @@ export interface TraceEntry {
   contradictionIds?: string[]
   gapIds?: string[]
   verification?: { status: string; confidence: number }
+  /** v0.4 intelligence: claim confidence assessment + explicit uncertainty. */
+  assessment?: { status: string; confidence: number }
+  uncertainties?: Array<{ kind: string; detail: string }>
 }
 
 export interface TraceabilityReport {
@@ -45,6 +50,7 @@ export interface TraceExtras {
   gaps?: ResearchGap[]
   verifications?: HypothesisVerification[]
   sources?: Source[]
+  intelligence?: ResearchIntelligenceReport
 }
 
 function findVerification(
@@ -68,6 +74,17 @@ function verificationSummary(
   v: HypothesisVerification | undefined,
 ): { status: string; confidence: number } | undefined {
   return v ? { status: v.status, confidence: v.confidence } : undefined
+}
+
+function findAssessment(
+  claimIds: string[],
+  intelligence: ResearchIntelligenceReport,
+): ClaimConfidenceAssessment | undefined {
+  for (const id of claimIds) {
+    const assessment = intelligence.claims.find((a) => a.claimId === id)
+    if (assessment) return assessment
+  }
+  return undefined
 }
 
 /**
@@ -118,6 +135,12 @@ export function buildTraceabilityReport(
     const verification = extras.verifications
       ? verificationSummary(findVerification(claimIds, claimEvidenceIds, extras.verifications))
       : undefined
+    const assessment = extras.intelligence
+      ? findAssessment(claimIds, extras.intelligence)
+      : undefined
+    const uncertainties = extras.intelligence
+      ? extras.intelligence.uncertainties.filter((u) => claimIds.includes(u.subjectId))
+      : undefined
 
     return {
       shotId: shot.id,
@@ -143,6 +166,10 @@ export function buildTraceabilityReport(
       ...(extras.contradictions ? { contradictionIds } : {}),
       ...(extras.gaps ? { gapIds } : {}),
       ...(extras.verifications && verification ? { verification } : {}),
+      ...(assessment ? { assessment } : {}),
+      ...(uncertainties && uncertainties.length > 0
+        ? { uncertainties: uncertainties.map((u) => ({ kind: u.kind, detail: u.detail })) }
+        : {}),
     }
   })
 

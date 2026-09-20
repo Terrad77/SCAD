@@ -19,7 +19,15 @@ export { detectResearchGaps } from "./agents/research/gap-detector.js"
 export { renderResearchReport } from "./agents/research/research-report.js"
 export { makeId } from "./agents/research/ids.js"
 export { verifyHypotheses } from "./agents/hypothesis/verify.js"
-export type { HypothesisVerificationInput } from "./agents/hypothesis/verify.js"
+export type {
+  HypothesisVerificationInput,
+  VerificationEnrichmentInput,
+} from "./agents/hypothesis/verify.js"
+export {
+  ResearchIntelligenceEngine,
+  researchIntelligence,
+} from "./agents/research/research-intelligence.js"
+export type { ResearchIntelligenceOptions } from "./agents/research/research-intelligence.js"
 export { TraceService } from "./core/trace.js"
 export { SourceRegistry } from "./core/sources/source-registry.js"
 export {
@@ -28,6 +36,29 @@ export {
   computeAgreement,
   clamp,
 } from "./core/evidence/confidence.js"
+export { computeEvidenceQuality } from "./core/evidence/evidence-quality.js"
+export {
+  pairRelationship,
+  analyzeSourceIndependence,
+  independentSourcesFor,
+  mergeRelationships,
+  buildSourceRelationships,
+  profileFromRelationships,
+} from "./core/evidence/source-independence.js"
+export { assessClaim, assessClaims } from "./core/evidence/claim-assessment.js"
+export {
+  analyzeContradiction,
+  analyzeContradictions,
+} from "./core/evidence/contradiction-analysis.js"
+export {
+  computeResearchCompleteness,
+  evaluateStoppingCriteria,
+} from "./core/evidence/completeness.js"
+export {
+  collectUncertainties,
+  classifyClaimUncertainty,
+  hypothesisUncertainty,
+} from "./core/evidence/uncertainty.js"
 export { normalizeUrl, canonicalUrl, requestCacheKey } from "./providers/search/normalize.js"
 export { MockSearchProvider } from "./providers/search/mock-search-provider.js"
 export type { SearchProvider, SearchResult } from "./providers/search/search-provider.js"

@@ -58,6 +58,60 @@ and skipped on re-run unless `--force` is passed. Fact-Check, Self-Check, hypoth
 verification, and the research fallbacks are **deterministic engines** (rules, not LLM) —
 they verify structure and consistency of the output without calling an API.
 
+### Research Intelligence (v0.4)
+
+On top of the research bundle, SCAD evaluates the _quality of its own research_ with a fully
+deterministic, explainable scoring layer — no LLM is involved in any score. The
+`ResearchIntelligenceEngine` produces a single `intelligence.json` report:
+
+```mermaid
+flowchart LR
+    RB[Research Bundle] --> EQ[Evidence Quality]
+    RB --> SI[Source Independence]
+    RB --> CA[Claim Confidence 2.0]
+    RB --> CN[Contradiction Analysis 2.0]
+    RB --> CM[Completeness]
+    V[Verifications] --> HV[Hypothesis Verification 2.0]
+    EQ --> AR[Intelligence Report]
+    SI --> AR
+    CA --> AR
+    CN --> AR
+    CM --> U[Uncertainty]
+    HV --> U
+    U --> AR
+    AR --> SC[Stopping Criteria / continue?]
+
+    style EQ fill:#dbeafe,stroke:#3b82f6
+    style AR fill:#dcfce7,stroke:#22c55e
+    style SC fill:#fef3c7,stroke:#f59e0b
+```
+
+- **Evidence Quality** — reliability, strength, directness, specificity, freshness,
+  each scored and averaged into an explainable overall.
+- **Source Independence** — pairwise structural relationships (identical URL → repost,
+  shared publisher → derived, shared domain → reference, distinct outlets → independent,
+  otherwise `UNKNOWN`). Independence is never silently assumed.
+- **Claim Confidence 2.0** — support vs contradiction strength, agreement, independence
+  ratio, source reliability and completeness impact, collapsed into one of
+  `STRONGLY_SUPPORTED → SUPPORTED → PARTIALLY_SUPPORTED → INCONCLUSIVE → CONTESTED →
+CONTRADICTED → INSUFFICIENT_EVIDENCE`.
+- **Contradiction Analysis 2.0** — each conflict is resolved into a likely context
+  (time/population/definition/scope/methodology/measurement) before it can be branded a
+  genuine contradiction.
+- **Completeness & stopping** — nine weighted dimensions, critical gaps, unresolved
+  contradictions, and a deterministic "should we keep researching?" decision that always
+  respects hard resource limits.
+- **Explicit Uncertainty** — claims and hypotheses carry typed uncertainty
+  (`UNCERTAIN`, `INSUFFICIENT_EVIDENCE`, `CONFLICTING_EVIDENCE`, `LOW_QUALITY_EVIDENCE`)
+  instead of plain low confidence.
+- **Hypothesis Verification 2.0** — the base verdict is enriched with evidence quality,
+  independent source counts, alternative explanations and hypothesis-level uncertainty.
+
+> **Caveat.** Every score above is a _weighted heuristic for review_, not an objective
+> measure of truth. SCAD never asserts that a source is truly independent or that research
+> is complete — it reports what the structural signals suggest and always keeps `UNKNOWN`
+> as a legal answer.
+
 ## Quick Start
 
 ```bash
@@ -78,18 +132,20 @@ and the built-in mock search provider makes the whole chain run offline.
 
 ## Commands
 
-| Command                                                 | Description                                     |
-| ------------------------------------------------------- | ----------------------------------------------- |
-| `npx scad documentary <title>`                          | Run the full pipeline for a documentary concept |
-| `npx scad documentary <title> --force`                  | Re-run all stages from scratch                  |
-| `npx scad documentary <title> --interactive`            | Halt at checkpoints for human approval          |
-| `npx scad documentary <title> --provider <mock\|brave>` | Override the search provider for this run       |
-| `npx scad sources <project>`                            | Inspect research sources                        |
-| `npx scad evidence <project>`                           | Inspect extracted evidence                      |
-| `npx scad contradictions <project>`                     | Inspect detected contradictions                 |
-| `npx scad gaps <project>`                               | Inspect research gaps and priorities            |
-| `npx scad trace <project>`                              | Show shot → claim → evidence → source tracing   |
-| `npx scad help`                                         | Show help text                                  |
+| Command                                                 | Description                                                          |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| `npx scad documentary <title>`                          | Run the full pipeline for a documentary concept                      |
+| `npx scad documentary <title> --force`                  | Re-run all stages from scratch                                       |
+| `npx scad documentary <title> --interactive`            | Halt at checkpoints for human approval                               |
+| `npx scad documentary <title> --provider <mock\|brave>` | Override the search provider for this run                            |
+| `npx scad sources <project>`                            | Inspect research sources                                             |
+| `npx scad evidence <project>`                           | Inspect extracted evidence                                           |
+| `npx scad contradictions <project>`                     | Inspect detected contradictions                                      |
+| `npx scad gaps <project>`                               | Inspect research gaps and priorities                                 |
+| `npx scad trace <project>`                              | Show shot → claim → evidence → source tracing                        |
+| `npx scad intelligence <project>`                       | Show the v0.4 intelligence report summary                            |
+| `npx scad intelligence <project> <view>`                | One view: quality\|completeness\|verify\|contradictions\|uncertainty |
+| `npx scad help`                                         | Show help text                                                       |
 
 ### Human Approval
 
@@ -165,16 +221,17 @@ path share one codebase.
 
 ### Agent Types
 
-| Component          | Stage        | Type          | Description                                                        |
-| ------------------ | ------------ | ------------- | ------------------------------------------------------------------ |
-| `ResearchEngine`   | `research`   | LLM + rules   | Plan → search → evidence → claims → contradictions → gaps loop     |
-| `ClaimsAgent`      | `claims`     | LLM           | Legacy claim extraction (used only when research has no claims)    |
-| `HypothesisAgent`  | `hypotheses` | LLM           | Generates testable hypotheses grounded in evidence                 |
-| `verifyHypotheses` | `hypotheses` | Deterministic | Verifies hypotheses against evidence, gaps, and contradictions     |
-| `FactCheckEngine`  | `factCheck`  | Deterministic | Verifies claims against research sources                           |
-| `NarrativeAgent`   | `narrative`  | LLM           | Writes a narrative structure with knowledge-level tagged sentences |
-| `VisualAgent`      | `visual`     | LLM           | Converts narrative into visual shots                               |
-| `SelfCheckEngine`  | `selfCheck`  | Deterministic | Validates structural consistency of all outputs                    |
+| Component                    | Stage        | Type          | Description                                                        |
+| ---------------------------- | ------------ | ------------- | ------------------------------------------------------------------ |
+| `ResearchEngine`             | `research`   | LLM + rules   | Plan → search → evidence → claims → contradictions → gaps loop     |
+| `ClaimsAgent`                | `claims`     | LLM           | Legacy claim extraction (used only when research has no claims)    |
+| `HypothesisAgent`            | `hypotheses` | LLM           | Generates testable hypotheses grounded in evidence                 |
+| `verifyHypotheses`           | `hypotheses` | Deterministic | Verifies hypotheses against evidence, gaps, and contradictions     |
+| `ResearchIntelligenceEngine` | `research`   | Deterministic | v0.4: quality/independence/confidence/completeness/uncertainty     |
+| `FactCheckEngine`            | `factCheck`  | Deterministic | Verifies claims against research sources                           |
+| `NarrativeAgent`             | `narrative`  | LLM           | Writes a narrative structure with knowledge-level tagged sentences |
+| `VisualAgent`                | `visual`     | LLM           | Converts narrative into visual shots                               |
+| `SelfCheckEngine`            | `selfCheck`  | Deterministic | Validates structural consistency of all outputs                    |
 
 ## Testing
 
@@ -199,27 +256,37 @@ SHOT → SNT (narrative sentence) → CLM (claim) → EVID (evidence) → SRC (s
 
 `TraceService` builds the full report from the research bundle, and
 `buildTraceabilityReport()` covers the legacy pipeline; both are included in the output
-(`traceability.json`).
+(`traceability.json`). When an intelligence report exists, each trace entry is enriched
+with the claim's v0.4 assessment, evidence quality, contradiction analyses and explicit
+uncertainties.
 
 ## Domain Model
 
 Core entities produced and consumed by the pipeline (all validated with Zod):
 
-| Entity                | Stage          | Description                                                     |
-| --------------------- | -------------- | --------------------------------------------------------------- |
-| `Source`              | `research`     | A normalized, deduplicated reference with reliability/relevance |
-| `SearchQuery`         | `research`     | A concrete query bound to a sub-question                        |
-| `Evidence`            | `research`     | A claim-level finding tied to exactly one source                |
-| `Claim`               | `research`     | A conclusion backed by linked evidence ids and sources          |
-| `Contradiction`       | `research`     | Classified conflicts (population/period/definition/methodology) |
-| `ResearchGap`         | `research`     | Uncovered sub-questions, weak evidence or open verification     |
-| `ResearchBundle`      | `research`     | The full deterministic research output of one run               |
-| `Hypothesis`          | `hypotheses`   | A testable assumption grounded in evidence                      |
-| `FactCheckAssessment` | `factCheck`    | A claim checked against the research artifact                   |
-| `Narrative`           | `narrative`    | Sections of knowledge-tagged sentences                          |
-| `Shot`                | `visual`       | A timed visual beat linked to narrative sentences               |
-| `SelfCheck`           | `selfCheck`    | Structural validation report over all artifacts                 |
-| `TraceabilityReport`  | `traceability` | Shot → sentence → claim → evidence → source chain               |
+| Entity                       | Stage          | Description                                                     |
+| ---------------------------- | -------------- | --------------------------------------------------------------- |
+| `Source`                     | `research`     | A normalized, deduplicated reference with reliability/relevance |
+| `SearchQuery`                | `research`     | A concrete query bound to a sub-question                        |
+| `Evidence`                   | `research`     | A claim-level finding tied to exactly one source                |
+| `Claim`                      | `research`     | A conclusion backed by linked evidence ids and sources          |
+| `Contradiction`              | `research`     | Classified conflicts (population/period/definition/methodology) |
+| `ResearchGap`                | `research`     | Uncovered sub-questions, weak evidence or open verification     |
+| `ResearchBundle`             | `research`     | The full deterministic research output of one run               |
+| `EvidenceQuality`            | `intelligence` | Five-dimension quality portrait of every evidence item          |
+| `SourceIndependenceResult`   | `intelligence` | Pairwise source relationships and independence profile          |
+| `ClaimConfidenceAssessment`  | `intelligence` | Claim Confidence 2.0 with reasons                               |
+| `ContradictionAnalysis`      | `intelligence` | Conflict resolved into a likely context                         |
+| `ResearchCompleteness`       | `intelligence` | Nine weighted dimensions + stopping criteria                    |
+| `Uncertainty`                | `intelligence` | Typed uncertainty per claim/hypothesis/research                 |
+| `VerificationResult`         | `intelligence` | Hypothesis Verification 2.0 enrichment                          |
+| `ResearchIntelligenceReport` | `intelligence` | The full v0.4 report (`intelligence.json`)                      |
+| `Hypothesis`                 | `hypotheses`   | A testable assumption grounded in evidence                      |
+| `FactCheckAssessment`        | `factCheck`    | A claim checked against the research artifact                   |
+| `Narrative`                  | `narrative`    | Sections of knowledge-tagged sentences                          |
+| `Shot`                       | `visual`       | A timed visual beat linked to narrative sentences               |
+| `SelfCheck`                  | `selfCheck`    | Structural validation report over all artifacts                 |
+| `TraceabilityReport`         | `traceability` | Shot → sentence → claim → evidence → source chain               |
 
 **Research loop.** The research stage runs `question → plan → search → sources → evidence →
 claims → contradictions → gaps → follow-up research → updated claims`, then ships the
@@ -239,7 +306,13 @@ deterministic fallbacks, the loop runs identically offline and online.
   bindings, content-extraction abstraction (`http`/`mock`/`noop`), JSON file caching with
   TTL, and retry/timeout/backoff transport shared by all real providers. Offline mode
   (`mock` everywhere) still requires no API keys.
-- **v0.4 — Validation & scale (next).** Vector storage behind the `MemoryStore` seam,
+- **v0.4 — Research Intelligence & Verification (done).** SCAD now evaluates its own
+  research deterministically: evidence quality, source independence, Claim Confidence 2.0,
+  contradiction analysis, research completeness with stopping criteria, explicit
+  uncertainty, and Hypothesis Verification 2.0 — all explainable and offline. New
+  `scad intelligence <project>` command and `intelligence.json` artifact. `UNKNOWN` stays a
+  legal answer everywhere; scores are heuristics for review, never truth claims.
+- **v0.5 — Validation & scale (next).** Vector storage behind the `MemoryStore` seam,
   richer approve/reject/modify UI, more search providers, and staged documentary extraction
   (longer, source-driven outputs).
 
