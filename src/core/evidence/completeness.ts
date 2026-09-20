@@ -12,6 +12,7 @@ import type {
   Source,
   SourceIndependenceResult,
   StoppingCriteriaResult,
+  Uncertainty,
 } from "../schemas.js"
 import { clamp } from "./confidence.js"
 import {
@@ -253,6 +254,8 @@ export function computeResearchCompleteness(
 export interface StoppingCriteriaInput {
   completeness: ResearchCompleteness
   claims: ClaimConfidenceAssessment[]
+  /** Explicit uncertainties (v0.4) to feed the "should we continue?" decision. */
+  uncertainties?: Uncertainty[]
   resources: {
     sourcesUsed: number
     queriesUsed: number
@@ -267,11 +270,18 @@ export interface StoppingCriteriaInput {
   }
 }
 
+/** Uncertainty kinds substantial enough to justify continued research. */
+const SUBSTANTIVE_UNCERTAINTY_KINDS = new Set<Uncertainty["kind"]>([
+  "CONFLICTING_EVIDENCE",
+  "LOW_QUALITY_EVIDENCE",
+])
+
 /**
  * Deterministic "should research continue?" decision. Research continues while
- * a genuine open problem remains (unresolved contradiction, critical gap, or a
- * claim that still lacks independent corroboration) — unless a hard limit was
- * reached, in which case we stop and say so explicitly.
+ * a genuine open problem remains (unresolved contradiction, critical gap, a
+ * claim that still lacks independent corroboration, or substantive supporting
+ * uncertainty) — unless a hard limit was reached, in which case we stop and
+ * say so explicitly.
  */
 export function evaluateStoppingCriteria(input: StoppingCriteriaInput): StoppingCriteriaResult {
   const { completeness, claims, resources, limits } = input
@@ -293,6 +303,16 @@ export function evaluateStoppingCriteria(input: StoppingCriteriaInput): Stopping
     reasons.push(
       `research completeness is ${completeness.status} (${completeness.score.toFixed(2)})`,
     )
+  }
+
+  const uncertaintyReasons: string[] = []
+  for (const u of input.uncertainties ?? []) {
+    if (!SUBSTANTIVE_UNCERTAINTY_KINDS.has(u.kind)) continue
+    if (uncertaintyReasons.length >= 2) break
+    uncertaintyReasons.push(u.detail)
+  }
+  for (const reason of uncertaintyReasons) {
+    if (!reasons.includes(reason)) reasons.push(reason)
   }
 
   const exceeded: string[] = []

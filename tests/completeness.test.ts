@@ -184,4 +184,39 @@ describe("stopping criteria (v0.4)", () => {
     expect(result.reasons).toHaveLength(0)
     expect(result.limitsRespected).toBe(true)
   })
+
+  it("continues when substantive uncertainty exists even if nothing else is open", () => {
+    const result = evaluateStoppingCriteria({
+      completeness: {
+        score: 0.9,
+        status: "COMPLETE",
+        dimensions: [] as ResearchIntelligenceReport["completeness"]["dimensions"],
+        unresolvedGaps: [],
+        unresolvedContradictions: [],
+        recommendations: [],
+      },
+      claims: [
+        {
+          ...claims[0]!,
+          status: "STRONGLY_SUPPORTED",
+          confidence: 0.85,
+          independentSourceCount: 2,
+        },
+      ],
+      uncertainties: [
+        {
+          id: "UNC_001",
+          kind: "LOW_QUALITY_EVIDENCE",
+          subjectType: "claim",
+          subjectId: "CLM_001",
+          detail: "Claims' evidence averages low quality (0.42): admixture claim.",
+        },
+      ],
+      resources: { sourcesUsed: 3, queriesUsed: 2 },
+    })
+    expect(result.continueResearch).toBe(true)
+    expect(result.reasons).toContain(
+      "Claims' evidence averages low quality (0.42): admixture claim.",
+    )
+  })
 })

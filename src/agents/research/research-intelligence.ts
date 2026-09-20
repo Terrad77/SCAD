@@ -131,6 +131,8 @@ export class ResearchIntelligenceEngine {
       (verification, index) =>
         enrichVerification({
           verification,
+          evidence,
+          claims,
           sources,
           qualityByEvidence,
           contradictionsAnalysis: contradictionAnalyses,
@@ -142,10 +144,11 @@ export class ResearchIntelligenceEngine {
     const stopping = evaluateStoppingCriteria({
       completeness,
       claims: claimAssessments,
+      uncertainties,
       resources: {
         sourcesUsed: sources.length,
         queriesUsed: queries.length,
-        followUpRoundsUsed: queries.length > plan.subQuestions.length ? 1 : 0,
+        followUpRoundsUsed: research.followUpRoundsUsed,
       },
       limits: this.options.limits,
     })

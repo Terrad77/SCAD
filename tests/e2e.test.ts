@@ -48,6 +48,7 @@ describe("offline research E2E", () => {
     expect(first.queries.length).toBeGreaterThan(first.plan.subQuestions.length)
     expect(first.gaps.some((g) => g.suggestedResearchQueries.length > 0)).toBe(true)
     expect(first.sources.length).toBeLessThanOrEqual(24)
+    expect(first.followUpRoundsUsed).toBe(1)
 
     // Determinism across independent runs
     expect(first.sources.map((s) => s.id)).toEqual(second.sources.map((s) => s.id))

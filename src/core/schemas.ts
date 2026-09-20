@@ -452,5 +452,7 @@ export const ResearchBundleSchema = z.object({
   claims: z.array(ClaimSchema),
   contradictions: z.array(ContradictionSchema),
   gaps: z.array(ResearchGapSchema),
+  /** Number of follow-up rounds actually executed (bookkeeping, 0 if none). */
+  followUpRoundsUsed: z.number().int().min(0).optional(),
 })
 export type ResearchBundle = z.infer<typeof ResearchBundleSchema>

@@ -39,6 +39,12 @@ export interface DocumentaryOptions {
   search?: SearchProvider
   /** Optional full-content fetcher for evidence extraction (defaults to none). */
   content?: ContentProvider
+  /**
+   * ISO date the freshness calculation is relative to. When omitted, the run
+   * time is used; set it explicitly (e.g. via SCAD_REFERENCE_DATE) for
+   * reproducible intelligence scores.
+   */
+  referenceDate?: string
   research?: Pick<
     ResearchEngineOptions,
     | "maxSubQuestions"
@@ -191,11 +197,11 @@ export async function runDocumentaryPipeline(
     intelligence = new ResearchIntelligenceEngine({
       research,
       verifications,
+      referenceDate: options.referenceDate,
       limits: {
         maxSources: options.research?.maxSources,
         maxSubQuestions: options.research?.maxSubQuestions,
         maxFollowUpRounds: options.research?.maxFollowUpRounds,
-        maxIterations: options.research?.maxFollowUpRounds,
       },
     }).run()
     await memory.save("intelligence", intelligence)

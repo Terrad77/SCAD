@@ -49,6 +49,17 @@ export function researchFromEnv(): NonNullable<
   }
 }
 
+/** Optional ISO date that roots all freshness/reproducibility calculations. */
+export function referenceDateFromEnv(): string | undefined {
+  const raw = process.env.SCAD_REFERENCE_DATE
+  if (raw === undefined || raw === "") return undefined
+  if (!Number.isFinite(Date.parse(raw))) {
+    log(`Ignoring invalid SCAD_REFERENCE_DATE "${raw}" (expected an ISO date).`)
+    return undefined
+  }
+  return new Date(raw).toISOString()
+}
+
 export function providerFromEnv(): LLMInstance {
   return createLLMProvider({
     provider: process.env.LLM_PROVIDER ?? "opencode",
@@ -242,6 +253,7 @@ export async function cmdDocumentary(
     approvals,
     search: searchProviderFromEnv(provider),
     content: contentProviderFromEnv(),
+    referenceDate: referenceDateFromEnv(),
     research: researchFromEnv(),
   })
   const sc = result.selfCheck
@@ -288,6 +300,7 @@ export async function cmdStage(
     forceStage: force ? canonical : undefined,
     search: searchProviderFromEnv(provider),
     content: contentProviderFromEnv(),
+    referenceDate: referenceDateFromEnv(),
     research: researchFromEnv(),
   })
   log(`Stage "${canonical}" processed.`)

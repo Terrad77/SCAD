@@ -171,6 +171,7 @@ export function makeResearchBundle(over: Partial<ResearchBundle> = {}): Research
       makeClaim({
         evidence: ["Genomic data shows interbreeding."],
         evidenceIds: ["EV_001", "EV_002"],
+        sources: ["SRC_001", "SRC_002"],
         subquestionIds: ["SUB_Q_001"],
       }),
     ],

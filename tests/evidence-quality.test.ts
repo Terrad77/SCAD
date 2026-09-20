@@ -65,4 +65,21 @@ describe("evidence quality (v0.4)", () => {
     expect(quality.dimensions.reliability).toBeCloseTo(0.5, 10)
     expect(quality.reasons.some((r) => r.includes("default"))).toBe(true)
   })
+
+  it("is fully reproducible with an explicit referenceDate", () => {
+    const input = () => ({
+      evidence: makeEvidence({
+        statement: "Genomic data shows interbreeding between hominins.",
+      }),
+      source: makeSource({ reliability: 0.7, publishedAt: "2023-06-01" }),
+      referenceDate: "2026-01-01",
+    })
+    // Same referenceDate, independent calls → identical score.
+    expect(computeEvidenceQuality(input()).overall).toBeCloseTo(
+      computeEvidenceQuality(input()).overall,
+      10,
+    )
+    // The freshness window, not the wall clock, drives the identical result.
+    expect(computeEvidenceQuality(input()).dimensions.freshness).toBe(0.9) // ~2.6 years old
+  })
 })

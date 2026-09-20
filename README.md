@@ -90,7 +90,8 @@ flowchart LR
   each scored and averaged into an explainable overall.
 - **Source Independence** — pairwise structural relationships (identical URL → repost,
   shared publisher → derived, shared domain → reference, distinct outlets → independent,
-  otherwise `UNKNOWN`). Independence is never silently assumed.
+  otherwise `UNKNOWN`). Independence is never silently assumed: a lone source can never
+  count as independent, and a pair with only `UNKNOWN` relationships yields no verdict.
 - **Claim Confidence 2.0** — support vs contradiction strength, agreement, independence
   ratio, source reliability and completeness impact, collapsed into one of
   `STRONGLY_SUPPORTED → SUPPORTED → PARTIALLY_SUPPORTED → INCONCLUSIVE → CONTESTED →
@@ -100,12 +101,15 @@ CONTRADICTED → INSUFFICIENT_EVIDENCE`.
   genuine contradiction.
 - **Completeness & stopping** — nine weighted dimensions, critical gaps, unresolved
   contradictions, and a deterministic "should we keep researching?" decision that always
-  respects hard resource limits.
+  respects hard resource limits. Substantive uncertainty (`CONFLICTING_EVIDENCE`,
+  `LOW_QUALITY_EVIDENCE`) also feeds the decision, so research does not "stop green" while
+  the report itself flags serious uncertainty.
 - **Explicit Uncertainty** — claims and hypotheses carry typed uncertainty
   (`UNCERTAIN`, `INSUFFICIENT_EVIDENCE`, `CONFLICTING_EVIDENCE`, `LOW_QUALITY_EVIDENCE`)
   instead of plain low confidence.
 - **Hypothesis Verification 2.0** — the base verdict is enriched with evidence quality,
-  independent source counts, alternative explanations and hypothesis-level uncertainty.
+  independent source counts, the contradiction records that touch the hypothesis's
+  evidence, alternative explanations and hypothesis-level uncertainty.
 
 > **Caveat.** Every score above is a _weighted heuristic for review_, not an objective
 > measure of truth. SCAD never asserts that a source is truly independent or that research
@@ -180,6 +184,7 @@ Configure via `.env` (see `.env.example`):
 | `RESEARCH_MAX_FOLLOWUP_ROUNDS` | `1`                                                         | How often gaps trigger follow-up research                 |
 | `RESEARCH_MAX_SOURCES`         | `40`                                                        | Global cap on collected sources                           |
 | `RESEARCH_MAX_CONTENT`         | `8000`                                                      | Per-source content length limit (chars)                   |
+| `SCAD_REFERENCE_DATE`          | ISO date, e.g. `2026-01-15`                                 | Roots freshness + `generatedAt` for reproducible scores   |
 | `CACHE_ENABLED`                | `1`                                                         | `0` disables the JSON file cache entirely                 |
 | `CACHE_TTL`                    | `86400`                                                     | Cache TTL in seconds                                      |
 | `SCAD_CACHE_DIR`               | `data/cache`                                                | Where cache JSON files are stored (`data/` is gitignored) |
@@ -312,6 +317,14 @@ deterministic fallbacks, the loop runs identically offline and online.
   uncertainty, and Hypothesis Verification 2.0 — all explainable and offline. New
   `scad intelligence <project>` command and `intelligence.json` artifact. `UNKNOWN` stays a
   legal answer everywhere; scores are heuristics for review, never truth claims.
+- **v0.4.1 — Epistemic integrity fixes (done).** A single source can never be declared
+  independent (`independentCount` is now 0 for one-source claims and for `UNKNOWN` pairs).
+  Verification enrichment surfaces the contradiction records over its touched claims
+  instead of comparing misaligned id namespaces. The stopping criteria consume explicit
+  `CONFLICTING_EVIDENCE`/`LOW_QUALITY_EVIDENCE` uncertainty, so research no longer stops
+  while the report itself flags serious uncertainty. Freshness is reproducible via an
+  explicit `referenceDate`/`SCAD_REFERENCE_DATE`, and `followUpRoundsUsed` is tracked —
+  not inferred — while the bogus `maxIterations` mapping was dropped.
 - **v0.5 — Validation & scale (next).** Vector storage behind the `MemoryStore` seam,
   richer approve/reject/modify UI, more search providers, and staged documentary extraction
   (longer, source-driven outputs).

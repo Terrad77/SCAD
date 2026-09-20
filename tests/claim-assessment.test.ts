@@ -76,7 +76,7 @@ describe("claim assessment 2.0 (v0.4)", () => {
     expect(assessment.unresolvedGapCount).toBe(0)
   })
 
-  it("penalizes weak evidence plus an open gap down to PARTIALLY_SUPPORTED", () => {
+  it("penalizes weak evidence, missing independence and an open gap down to INCONCLUSIVE", () => {
     const claim: Claim = {
       ...makeResearchBundle().claims[0]!,
       evidenceIds: ["EV_001"],
@@ -102,9 +102,11 @@ describe("claim assessment 2.0 (v0.4)", () => {
       ],
     })
 
-    expect(assessment.status).toBe("PARTIALLY_SUPPORTED")
+    expect(assessment.status).toBe("INCONCLUSIVE")
     expect(assessment.unresolvedGapCount).toBe(1)
-    expect(assessment.completenessImpact).toBeCloseTo(-0.04, 10)
+    // A single source can never count as independent (regression).
+    expect(assessment.independentSourceCount).toBe(0)
+    expect(assessment.completenessImpact).toBeCloseTo(-0.09, 10)
   })
 
   it("reports INSUFFICIENT_EVIDENCE when a claim has no linked evidence", () => {

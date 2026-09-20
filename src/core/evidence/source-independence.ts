@@ -205,7 +205,15 @@ export function mergeRelationships(
   return profileFromRelationships([...merged.values()], sources)
 }
 
-/** Counts how many of a claim's sources are independent of the others. */
+/**
+ * Counts how many of a claim's sources are independent of the others.
+ *
+ * Independence is never silently assumed: a single source can never be
+ * declared independent (a lone source cannot corroborate itself), and a pair
+ * with an UNKNOWN relationship yields no independence verdict either. Only
+ * sources behind an explicit INDEPENDENT signal, and free of any dependency
+ * edge, count.
+ */
 export function independentSourcesFor(
   sourceIds: string[],
   sources: Source[],
@@ -213,8 +221,12 @@ export function independentSourcesFor(
   const byId = new Map(sources.map((s) => [s.id, s]))
   const present = sourceIds.map((id) => byId.get(id)).filter((s): s is Source => Boolean(s))
   if (present.length === 0) return { independentCount: 0, note: "no sources" }
+  if (present.length === 1) {
+    return { independentCount: 0, note: "single source; independence cannot be verified" }
+  }
 
   const edges = new Map<string, Set<string>>()
+  const confirmedIndependent = new Set<string>()
   for (let i = 0; i < present.length; i += 1) {
     for (let j = i + 1; j < present.length; j += 1) {
       const a = present[i]!
@@ -226,16 +238,22 @@ export function independentSourcesFor(
         edges.get(a.id)!.add(b.id)
         edges.get(b.id)!.add(a.id)
       }
+      if (record.relationship === "INDEPENDENT") {
+        confirmedIndependent.add(a.id)
+        confirmedIndependent.add(b.id)
+      }
     }
   }
 
-  const independentCount = present.filter((s) => !edges.has(s.id)).length
-  const dependentCount = present.length - independentCount
+  const independentCount = present.filter(
+    (s) => confirmedIndependent.has(s.id) && !edges.has(s.id),
+  ).length
+  const unverifiedCount = present.length - independentCount
   return {
     independentCount,
     note:
-      dependentCount > 0
-        ? `${independentCount} of ${present.length} sources without a detected dependency edge; ${dependentCount} share origin signals`
-        : `${independentCount} of ${present.length} sources; no dependency detected`,
+      unverifiedCount > 0
+        ? `${independentCount} of ${present.length} sources with confirmed independence; ${unverifiedCount} unverified (single-source or UNKNOWN relationships)`
+        : `${independentCount} of ${present.length} sources with confirmed independence`,
   }
 }

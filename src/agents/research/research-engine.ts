@@ -157,9 +157,11 @@ export class ResearchEngine {
     this.logger.info("gaps", `detected: ${gaps.length}`)
 
     let nextQueryIndex = queries.length + 1
+    let followUpRoundsUsed = 0
     for (let round = 0; round < this.maxFollowUpRounds; round += 1) {
       const followUpQueries = this.selectFollowUpQueries(gaps)
       if (followUpQueries.length === 0) break
+      followUpRoundsUsed += 1
       this.logger.info("research", `follow-up queries: ${followUpQueries.length}`)
       const followUpEvidence: Evidence[] = []
       for (const followUpQuery of followUpQueries) {
@@ -232,6 +234,7 @@ export class ResearchEngine {
       claims,
       contradictions,
       gaps,
+      followUpRoundsUsed,
     }
   }
 

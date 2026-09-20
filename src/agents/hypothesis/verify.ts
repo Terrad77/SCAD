@@ -1,4 +1,5 @@
 import type {
+  Claim,
   ContradictionAnalysis,
   Evidence,
   EvidenceQuality,
@@ -155,6 +156,10 @@ function alternativeExplanation(analysis: ContradictionAnalysis): string | null 
 
 export interface VerificationEnrichmentInput {
   verification: HypothesisVerification
+  /** Evidence items the verification's ids refer to (for claim mapping). */
+  evidence: Evidence[]
+  /** Claims of the research bundle (insurance when evidence ids dangle). */
+  claims: Claim[]
   sources: Source[]
   qualityByEvidence: Map<string, EvidenceQuality>
   contradictionsAnalysis: ContradictionAnalysis[]
@@ -168,20 +173,31 @@ export interface VerificationEnrichmentInput {
  * alternative explanations and explicit uncertainty. All deterministic.
  */
 export function enrichVerification(input: VerificationEnrichmentInput): VerificationResult {
-  const { verification: v, sources, qualityByEvidence, contradictionsAnalysis } = input
+  const {
+    verification: v,
+    evidence,
+    claims,
+    sources,
+    qualityByEvidence,
+    contradictionsAnalysis,
+  } = input
   const evidenceIds = [...v.supportingEvidence, ...v.contradictingEvidence]
   const evidenceQuality = evidenceIds
     .map((id) => qualityByEvidence.get(id))
     .filter((q): q is EvidenceQuality => Boolean(q))
 
+  // Map the verification's evidence back to the claims it touches, then keep
+  // every contradiction analysis over those claims. (Evidence ids and
+  // contradiction ids are distinct namespaces and must never be compared.)
+  const evidenceIdSet = new Set(evidenceIds)
   const touchedClaimIds = new Set<string>()
-  for (const analysis of contradictionsAnalysis) {
-    if (
-      v.supportingEvidence.some((id) => id === analysis.contradictionId) ||
-      v.contradictingEvidence.some((id) => id === analysis.contradictionId)
-    ) {
-      touchedClaimIds.add(analysis.claimA)
-      touchedClaimIds.add(analysis.claimB)
+  for (const claim of claims) {
+    if ((claim.evidenceIds ?? []).some((id) => evidenceIdSet.has(id))) touchedClaimIds.add(claim.id)
+  }
+  for (const ev of evidence) {
+    if (!evidenceIdSet.has(ev.id)) continue
+    for (const claimId of [...ev.supportsClaims, ...ev.contradictsClaims]) {
+      touchedClaimIds.add(claimId)
     }
   }
   const relatedAnalyses = contradictionsAnalysis.filter(

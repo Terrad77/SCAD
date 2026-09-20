@@ -102,7 +102,26 @@ describe("source independence (v0.4)", () => {
     ]
     const result = independentSourcesFor(["SRC_001", "SRC_002", "SRC_003"], sources)
     expect(result.independentCount).toBe(1)
-    expect(result.note).toContain("share origin signals")
+    expect(result.note).toContain("1 of 3 sources with confirmed independence")
+  })
+
+  it("never counts a lone source as independent", () => {
+    const sources = [
+      makeSource({ id: "SRC_001", url: "https://reuters.com/a", publisher: "Reuters", title: "A" }),
+    ]
+    const result = independentSourcesFor(["SRC_001"], sources)
+    expect(result.independentCount).toBe(0)
+    expect(result.note).toContain("single source; independence cannot be verified")
+  })
+
+  it("does not count UNKNOWN relationships as independence", () => {
+    const sources = [
+      makeSource({ id: "SRC_001", title: "A" }),
+      makeSource({ id: "SRC_002", title: "B" }),
+    ]
+    const result = independentSourcesFor(["SRC_001", "SRC_002"], sources)
+    expect(result.independentCount).toBe(0)
+    expect(result.note).toContain("unverified")
   })
 
   it("merges LLM-provided relationship overrides deterministically", () => {
