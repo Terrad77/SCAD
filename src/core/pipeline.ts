@@ -70,13 +70,17 @@ export class Pipeline {
     readonly initialContext: Record<string, unknown> = {},
   ) {}
 
-  async run(force = false): Promise<PipelineArtifacts> {
+  async run(
+    force = false,
+    forceStages: ReadonlySet<string> = new Set(),
+  ): Promise<PipelineArtifacts> {
     const artifacts: PipelineArtifacts = {}
     const context = { ...this.initialContext }
+    const regenerate = (stage: string) => force || forceStages.has(stage)
 
     for (const stage of PIPELINE_ORDER) {
       const existing = await this.memory.get<unknown>(stage)
-      if (existing !== null && !force) {
+      if (existing !== null && !regenerate(stage)) {
         artifacts[stage as keyof PipelineArtifacts] = existing as never
         context[stage] = existing
         continue

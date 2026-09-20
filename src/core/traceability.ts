@@ -52,12 +52,16 @@ function findVerification(
   claimEvidenceIds: string[],
   verifications: HypothesisVerification[],
 ): HypothesisVerification | undefined {
-  return verifications.find(
-    (v) =>
-      claimIds.includes(v.hypothesisId) ||
-      (claimEvidenceIds.length > 0 &&
-        v.supportingEvidence.some((eid) => claimEvidenceIds.includes(eid))),
-  )
+  if (claimEvidenceIds.length === 0) {
+    return verifications.find((v) => claimIds.includes(v.hypothesisId))
+  }
+  return verifications.find((v) => {
+    if (claimIds.includes(v.hypothesisId)) return true
+    return (
+      v.supportingEvidence.some((eid) => claimEvidenceIds.includes(eid)) ||
+      v.contradictingEvidence.some((eid) => claimEvidenceIds.includes(eid))
+    )
+  })
 }
 
 function verificationSummary(

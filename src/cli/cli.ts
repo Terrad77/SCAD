@@ -15,6 +15,10 @@ import { createLLMProvider } from "../providers/llm/factory.js"
 import type { LLMInstance } from "../providers/llm/factory.js"
 import { createSearchProvider } from "../providers/search/factory.js"
 import type { SearchProvider } from "../providers/search/search-provider.js"
+import { createContentProvider } from "../providers/content/factory.js"
+import { CachedContentProvider } from "../providers/content/cached-content-provider.js"
+import type { ContentProvider } from "../providers/content/content-provider.js"
+import { FileCache, defaultCacheDir } from "../providers/cache/file-cache.js"
 import { renderResearchReport } from "../agents/research/research-report.js"
 import { TraceService } from "../core/trace.js"
 import type { ResearchBundle } from "../core/schemas.js"
@@ -26,26 +30,58 @@ export function log(text: string): void {
   console.log(`[scad] ${text}`)
 }
 
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === "") return fallback
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
+}
+
+export function researchFromEnv(): NonNullable<
+  Parameters<typeof runDocumentaryPipeline>[0]["research"]
+> {
+  return {
+    maxSubQuestions: envInt("RESEARCH_MAX_QUERIES", 10),
+    maxSourcesPerQuery: envInt("RESEARCH_MAX_RESULTS", 8),
+    maxFollowUpRounds: envInt("RESEARCH_MAX_FOLLOWUP_ROUNDS", 1),
+    maxSources: envInt("RESEARCH_MAX_SOURCES", 40),
+    maxContentBytes: envInt("RESEARCH_MAX_CONTENT", 8_000),
+  }
+}
+
 export function providerFromEnv(): LLMInstance {
   return createLLMProvider({
     provider: process.env.LLM_PROVIDER ?? "opencode",
     opencodeModel: process.env.OPENCODE_MODEL,
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL,
     ollamaModel: process.env.OLLAMA_MODEL,
+    openaiModel: process.env.OPENAI_MODEL,
+    anthropicModel: process.env.ANTHROPIC_MODEL,
   })
 }
 
-export function searchProviderFromEnv(): SearchProvider {
+export function searchProviderFromEnv(provider?: string): SearchProvider {
   return createSearchProvider({
-    provider: process.env.SEARCH_PROVIDER,
+    provider: provider ?? process.env.SEARCH_PROVIDER,
     cache: process.env.SCAD_SEARCH_CACHE !== "0",
+    cacheDir: defaultCacheDir(),
   })
+}
+
+/** Real content fetching is cached to JSON; offline providers stay untouched. */
+export function contentProviderFromEnv(): ContentProvider {
+  const base = createContentProvider()
+  if (base.name !== "http") return base
+  if (process.env.CACHE_ENABLED === "0" || process.env.SCAD_SEARCH_CACHE === "0") return base
+  const cache = new FileCache({ dir: `${defaultCacheDir()}/content` })
+  return new CachedContentProvider(base, cache)
 }
 
 interface Parsed {
   name?: string
   question?: string
   title?: string
+  provider?: string
   force: boolean
   interactive: boolean
 }
@@ -58,6 +94,7 @@ export function parseArgs(argv: string[]): Parsed {
     else if (arg === "--interactive" || arg === "-i") flags.interactive = true
     else if (arg === "--question") flags.question = argv[++i]
     else if (arg === "--title") flags.title = argv[++i]
+    else if (arg === "--provider") flags.provider = argv[++i]
     else if (!flags.name) flags.name = arg
   }
   return flags
@@ -78,6 +115,15 @@ const STAGE_ALIASES: Record<string, string> = {
   "fact-check": "factCheck",
   "self-check": "selfCheck",
 }
+
+/** Stage subcommands accepted by `scad <stage> <project>` (aliases included). */
+export const STAGE_COMMANDS = new Set([
+  ...STAGE_ORDER,
+  "shots",
+  "check",
+  "fact-check",
+  "self-check",
+])
 
 async function outputArtifacts(
   dir: ReturnType<typeof projectDir>,
@@ -169,9 +215,12 @@ export async function cmdDocumentary(
   title: string,
   force: boolean,
   interactive = false,
+  provider?: string,
 ): Promise<number> {
   if (!name) {
-    console.error("Usage: scad documentary <project-name> [--force] [--interactive]")
+    console.error(
+      "Usage: scad documentary <project-name> [--force] [--interactive] [--provider <mock|brave>]",
+    )
     return 1
   }
   if (!(await projectExists(DATA_DIR, name))) {
@@ -188,7 +237,9 @@ export async function cmdDocumentary(
     title: meta?.title ?? title,
     force,
     approvals,
-    search: searchProviderFromEnv(),
+    search: searchProviderFromEnv(provider),
+    content: contentProviderFromEnv(),
+    research: researchFromEnv(),
   })
   const sc = result.selfCheck
   log(
@@ -201,6 +252,7 @@ export async function cmdStage(
   stage: string,
   name: string | undefined,
   force: boolean,
+  provider?: string,
 ): Promise<number> {
   const canonical = STAGE_ALIASES[stage] ?? stage
   if (!STAGE_ORDER.includes(canonical as (typeof STAGE_ORDER)[number])) {
@@ -230,7 +282,10 @@ export async function cmdStage(
     question: meta?.question ?? name,
     title: meta?.title ?? name,
     force: false,
-    search: searchProviderFromEnv(),
+    forceStage: force ? canonical : undefined,
+    search: searchProviderFromEnv(provider),
+    content: contentProviderFromEnv(),
+    research: researchFromEnv(),
   })
   log(`Stage "${canonical}" processed.`)
   return outputArtifacts(dir, result)

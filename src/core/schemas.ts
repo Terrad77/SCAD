@@ -102,6 +102,8 @@ export const ResearchGapSchema = z.object({
   importance: unitInterval,
   relatedClaims: z.array(idSchema),
   suggestedResearchQueries: z.array(z.string().min(1)),
+  /** Sub-question this gap concerns, when known deterministically. */
+  subquestionId: idSchema.optional(),
 })
 export type ResearchGap = z.infer<typeof ResearchGapSchema>
 

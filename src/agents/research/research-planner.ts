@@ -34,7 +34,7 @@ export class ResearchPlanner {
         "research",
         `research-plan fell back to deterministic planner: ${String(error)}`,
       )
-      if (error instanceof StructuredError || error instanceof SyntaxError) {
+      if (error instanceof StructuredError) {
         return buildFallbackPlan(question, [], `PLAN_001`)
       }
       throw error

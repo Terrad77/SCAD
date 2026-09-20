@@ -1,5 +1,5 @@
 import type { Source } from "../schemas.js"
-import { canonicalUrl } from "../../providers/search/normalize.js"
+import { canonicalUrl } from "../url.js"
 import type { SearchResult } from "../../providers/search/search-provider.js"
 import type { SourceAnalyzer } from "../../agents/research/source-analyzer.js"
 

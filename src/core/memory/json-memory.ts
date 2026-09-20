@@ -22,11 +22,15 @@ export class JsonMemoryStore implements MemoryStore {
   }
 
   async save<T>(key: string, value: T): Promise<void> {
+    if (isUnsafeKey(key)) {
+      throw new Error(`JsonMemoryStore: refusing unsafe store key "${key}"`)
+    }
     await mkdir(this.dir, { recursive: true })
     await writeFile(this.file(key), `${JSON.stringify(value, null, 2)}\n`, "utf8")
   }
 
   async get<T>(key: string): Promise<T | null> {
+    if (isUnsafeKey(key)) return null
     try {
       const raw = await readFile(this.file(key), "utf8")
       return JSON.parse(raw) as T
@@ -36,7 +40,7 @@ export class JsonMemoryStore implements MemoryStore {
   }
 
   async remove(key: string): Promise<void> {
-    if (key.includes("/") || key.includes("\\")) return // reject nested keys
+    if (isUnsafeKey(key)) return // reject nested keys
     await rm(join(this.dir, `${key}.json`), { force: true })
   }
 
@@ -72,3 +76,8 @@ export const dataDir = (() => {
   const here = fileURLToPath(import.meta.url)
   return join(here, "..", "..", "..", "data", "projects")
 })()
+
+/** Nested/absolute keys would escape the store directory (path traversal). */
+function isUnsafeKey(key: string): boolean {
+  return key.includes("/") || key.includes("\\") || key.startsWith(".")
+}

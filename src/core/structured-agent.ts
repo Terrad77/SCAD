@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { z } from "zod"
 import type { LLMProvider } from "../providers/llm/llm.js"
+import { HttpRequestError } from "../providers/http.js"
 import { parseJsonObject } from "./json.js"
 
 export class StructuredError extends Error {
@@ -66,6 +67,8 @@ export class StructuredAgent {
         return schema.parse(parseJsonObject(response.text)) as z.infer<S>
       } catch (error) {
         lastError = error
+        // A non-retryable HTTP failure (401/403/… ) cannot succeed on retry.
+        if (error instanceof HttpRequestError && !error.retriable) break
         if (attempt < maxRetries) {
           const delay = baseDelayMs * backoffFactor ** attempt
           await new Promise((resolve) => setTimeout(resolve, delay))

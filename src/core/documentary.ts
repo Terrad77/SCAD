@@ -14,6 +14,7 @@ import { buildTraceabilityReport } from "./traceability.js"
 import type { LLMProvider } from "../providers/llm/llm.js"
 import { MockSearchProvider } from "../providers/search/mock-search-provider.js"
 import type { SearchProvider } from "../providers/search/search-provider.js"
+import type { ContentProvider } from "../providers/content/content-provider.js"
 import type {
   ClaimsOutput,
   HypothesisVerification,
@@ -30,11 +31,20 @@ export interface DocumentaryOptions {
   title: string
   approvals?: ApprovalGate
   force?: boolean
+  /** Regenerate only this stage (with `--force` on a stage command). */
+  forceStage?: string
   /** Search backend for the Evidence & Research Engine (defaults to mock). */
   search?: SearchProvider
+  /** Optional full-content fetcher for evidence extraction (defaults to none). */
+  content?: ContentProvider
   research?: Pick<
     ResearchEngineOptions,
-    "maxSubQuestions" | "maxFollowUpRounds" | "followUpLimit" | "maxSourcesPerQuery"
+    | "maxSubQuestions"
+    | "maxFollowUpRounds"
+    | "followUpLimit"
+    | "maxSourcesPerQuery"
+    | "maxSources"
+    | "maxContentBytes"
   >
 }
 
@@ -70,6 +80,7 @@ export async function runDocumentaryPipeline(
     question: options.question,
     agent,
     search,
+    ...(options.content ? { content: options.content } : {}),
     ...(options.research ?? {}),
   })
   const claimsAgent = new ClaimsAgent(agent)
@@ -151,7 +162,10 @@ export async function runDocumentaryPipeline(
     sharedContext,
   )
 
-  const artifacts = await pipeline.run(options.force ?? false)
+  const artifacts = await pipeline.run(
+    options.force ?? false,
+    options.forceStage ? new Set([options.forceStage]) : undefined,
+  )
   const research = artifacts.research as ResearchBundle | undefined
   const claims = artifacts.claims!
   const narrative = artifacts.narrative!

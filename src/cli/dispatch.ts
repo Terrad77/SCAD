@@ -9,12 +9,11 @@ import {
   cmdGaps,
   cmdTrace,
   parseArgs,
+  STAGE_COMMANDS,
 } from "./cli.js"
 
-const STAGE_COMMANDS = new Set(["research", "claims", "hypotheses", "narrative", "shots", "check"])
-
 const USAGE =
-  "Usage: scad <init|research|claims|hypotheses|narrative|shots|check|sources|evidence|gaps|contradictions|trace|documentary|list> [project-name] [--force] [--interactive]"
+  "Usage: scad <init|research|claims|hypotheses|factCheck|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|documentary|list> [project-name] [--force] [--interactive] [--provider <mock|brave>]"
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -34,6 +33,7 @@ export async function main(argv: string[]): Promise<number> {
         parsed.title ?? parsed.name ?? "",
         parsed.force,
         parsed.interactive,
+        parsed.provider,
       )
     }
     case "sources":
@@ -49,7 +49,7 @@ export async function main(argv: string[]): Promise<number> {
     default: {
       if (command && STAGE_COMMANDS.has(command)) {
         const parsed = parseArgs(rest)
-        return cmdStage(command, parsed.name, parsed.force)
+        return cmdStage(command, parsed.name, parsed.force, parsed.provider)
       }
       console.error(USAGE)
       return 1

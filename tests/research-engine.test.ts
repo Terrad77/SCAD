@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { StructuredAgent, readPromptFile } from "../src/core/structured-agent.js"
+import { parseJsonObject } from "../src/core/json.js"
 import { MockLLMProvider } from "../src/providers/llm/mock.js"
 import type { SearchProvider } from "../src/providers/search/search-provider.js"
 import { MockSearchProvider } from "../src/providers/search/mock-search-provider.js"
 import { normalizeUrl, requestCacheKey } from "../src/providers/search/normalize.js"
 import { MemorySearchCache } from "../src/providers/search/cached-search-provider.js"
+import { MockContentProvider } from "../src/providers/content/mock-content-provider.js"
 import { SourceRegistry } from "../src/core/sources/source-registry.js"
 import { SourceAnalyzer } from "../src/agents/research/source-analyzer.js"
 import {
@@ -14,10 +16,12 @@ import {
 } from "../src/core/evidence/confidence.js"
 import { detectContradictions } from "../src/agents/research/contradiction-detector.js"
 import { detectResearchGaps } from "../src/agents/research/gap-detector.js"
-import { ResearchEngine } from "../src/agents/research/research-engine.js"
+import { ResearchEngine, resolveSubquestion } from "../src/agents/research/research-engine.js"
 import { verifyHypotheses } from "../src/agents/hypothesis/verify.js"
 import { TraceService } from "../src/core/trace.js"
 import { makeClaim, makeHypothesis, makeNarrative, makeShot } from "./fixtures.js"
+import type { ContentProvider } from "../src/providers/content/content-provider.js"
+import type { LLMRequest } from "../src/providers/llm/llm.js"
 import type {
   Claim,
   Evidence,
@@ -166,6 +170,67 @@ describe("contradiction detector", () => {
     const b = makeClaim({ id: "CLM_002", statement: "Birds migrate seasonally.", confidence: 0.8 })
     expect(detectContradictions([a, b])).toHaveLength(0)
   })
+
+  it("classifies different time periods, not contradictions", () => {
+    const a = makeClaim({
+      id: "CLM_001",
+      statement: "Modern humans carried Neanderthal DNA in the 2010s.",
+      confidence: 0.9,
+    })
+    const b = makeClaim({
+      id: "CLM_002",
+      statement: "Modern humans did not carry Neanderthal DNA in the 1900s.",
+      confidence: 0.9,
+    })
+    const results = detectContradictions([a, b])
+    expect(results[0]!.classification).toBe("DIFFERENT_TIME_PERIOD")
+  })
+
+  it("classifies different methodologies, not contradictions", () => {
+    const a = makeClaim({
+      id: "CLM_001",
+      statement: "Genome sequencing indicates modern humans share some ancestry markers.",
+      confidence: 0.9,
+    })
+    const b = makeClaim({
+      id: "CLM_002",
+      statement: "A statistical survey found different ancestry markers in modern humans.",
+      confidence: 0.9,
+    })
+    const results = detectContradictions([a, b])
+    expect(results[0]!.classification).toBe("DIFFERENT_METHODOLOGY")
+  })
+
+  it("classifies definitional disputes as definition differences", () => {
+    const a = makeClaim({
+      id: "CLM_001",
+      statement: "By the biological species definition, humans are one species.",
+      confidence: 0.9,
+    })
+    const b = makeClaim({
+      id: "CLM_002",
+      statement: "By the morphological species definition, humans are not one species.",
+      confidence: 0.9,
+    })
+    const results = detectContradictions([a, b])
+    expect(results[0]!.classification).toBe("DIFFERENT_DEFINITION")
+  })
+
+  it("downstreams uncertainty into a non-actionable severity", () => {
+    const a = makeClaim({
+      id: "CLM_001",
+      statement: "Isolated populations may diverge into new species.",
+      confidence: 0.5,
+    })
+    const b = makeClaim({
+      id: "CLM_002",
+      statement: "Isolated populations do not diverge into new species.",
+      confidence: 0.5,
+    })
+    const [result] = detectContradictions([a, b])
+    expect(result?.classification).toBe("UNCERTAINTY")
+    expect(result?.severity).toBe("LOW")
+  })
 })
 
 describe("research gap detector", () => {
@@ -243,6 +308,46 @@ describe("research gap detector", () => {
     })
     expect(gaps.some((g) => g.importance >= 0.9)).toBe(true)
   })
+
+  it("tags uncovered sub-question gaps with their subquestionId", () => {
+    const gaps = detectResearchGaps({ plan, claims, evidence, contradictions: [] })
+    const uncovered = gaps.find((g) => g.question.includes("No evidence gathered"))
+    expect(uncovered?.subquestionId).toBe("SUB_Q_002")
+  })
+})
+
+describe("follow-up sub-question mapping", () => {
+  const plan: ResearchPlan = {
+    id: "PLAN_001",
+    question: "Q",
+    subQuestions: [
+      { id: "SUB_Q_001", text: "Alpha" },
+      { id: "SUB_Q_002", text: "Beta" },
+    ],
+  }
+
+  it("prefers a gap's modeled subquestion over the text heuristic", () => {
+    const gap: ResearchGap = {
+      id: "GAP_001",
+      question: "No evidence gathered for sub-question: Alpha",
+      importance: 0.7,
+      relatedClaims: [],
+      suggestedResearchQueries: ["Alpha direct evidence"],
+      subquestionId: "SUB_Q_002",
+    }
+    expect(resolveSubquestion(plan, gap, [])).toBe("SUB_Q_002")
+  })
+
+  it("falls back to the text heuristic when the gap has no modeled subquestion", () => {
+    const gap: ResearchGap = {
+      id: "GAP_001",
+      question: "Research on Beta",
+      importance: 0.7,
+      relatedClaims: [],
+      suggestedResearchQueries: ["Beta direct evidence"],
+    }
+    expect(resolveSubquestion(plan, gap, [])).toBe("SUB_Q_002")
+  })
 })
 
 describe("ResearchEngine", () => {
@@ -289,6 +394,85 @@ describe("ResearchEngine", () => {
     })
     const bundle = await engine.run()
     expect(bundle.queries.length).toBeGreaterThan(bundle.plan.subQuestions.length)
+  })
+
+  it("keeps evidence and claim ids globally unique across follow-up rounds", async () => {
+    const engine = new ResearchEngine({
+      question: "Can humanity become a new species?",
+      agent: new StructuredAgent(emptyProvider(), readPromptFile),
+      search: new MockSearchProvider(),
+      maxFollowUpRounds: 1,
+      followUpLimit: 2,
+    })
+    const bundle = await engine.run()
+    expect(bundle.queries.length).toBeGreaterThan(bundle.plan.subQuestions.length)
+    expect(new Set(bundle.evidence.map((e) => e.id)).size).toBe(bundle.evidence.length)
+    expect(new Set(bundle.claims.map((c) => c.id)).size).toBe(bundle.claims.length)
+
+    const evidenceById = new Map(bundle.evidence.map((e) => [e.id, e]))
+    const service = new TraceService(bundle)
+    for (const claim of bundle.claims) {
+      expect(claim.evidenceIds?.length).toBeGreaterThanOrEqual(1)
+      for (const evId of claim.evidenceIds ?? []) expect(evidenceById.has(evId)).toBe(true)
+      const trace = service.traceClaim(claim.id)
+      expect(trace?.evidence.length).toBeGreaterThanOrEqual(1)
+      expect(trace?.sources.length).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it("caps the global source count", async () => {
+    const engine = new ResearchEngine({
+      question: "Can humanity become a new species?",
+      agent: new StructuredAgent(emptyProvider(), readPromptFile),
+      search: new MockSearchProvider(),
+      maxFollowUpRounds: 0,
+      maxSources: 1,
+    })
+    const bundle = await engine.run()
+    expect(bundle.sources.length).toBeLessThanOrEqual(1)
+  })
+
+  it("limits the length of fetched content", async () => {
+    const captured: number[] = []
+    const content: ContentProvider = {
+      name: "capturing",
+      async fetchContent(request) {
+        captured.push(request.maxBytes ?? 0)
+        return {
+          url: request.url,
+          text: "x".repeat(request.maxBytes ?? 0),
+          fetchedAt: new Date().toISOString(),
+          truncated: true,
+        }
+      },
+    }
+    const engine = new ResearchEngine({
+      question: "Can humanity become a new species?",
+      agent: new StructuredAgent(emptyProvider(), readPromptFile),
+      search: new MockSearchProvider(),
+      content,
+      maxFollowUpRounds: 0,
+      maxContentBytes: 64,
+    })
+    const bundle = await engine.run()
+    expect(bundle.evidence.length).toBeGreaterThan(0)
+    expect(captured.length).toBeGreaterThan(0)
+    expect(Math.max(...captured)).toBe(64)
+  })
+
+  it("feeds fetched page content into evidence extraction", async () => {
+    const engine = new ResearchEngine({
+      question: "Can humanity become a new species?",
+      agent: new StructuredAgent(new MockLLMProvider(contentEchoSelection), readPromptFile),
+      search: new MockSearchProvider(),
+      content: new MockContentProvider(),
+      maxFollowUpRounds: 0,
+    })
+    const bundle = await engine.run()
+    expect(bundle.evidence.length).toBeGreaterThan(0)
+    const fromFullText = bundle.evidence.filter((e) => e.statement.startsWith("From full text:"))
+    expect(fromFullText.length).toBeGreaterThan(0)
+    expect(bundle.evidence.some((e) => e.statement.includes("Modern synthesis"))).toBe(true)
   })
 })
 
@@ -360,6 +544,55 @@ describe("TraceService", () => {
     expect(trace!.sources.length).toBeGreaterThanOrEqual(1)
   })
 
+  it("maps claims to verifications that share their evidence", () => {
+    const bundle: ResearchBundle = {
+      question: "Q",
+      summary: "S",
+      plan: {
+        id: "PLAN_001",
+        question: "Q",
+        scope: "S",
+        subQuestions: [{ id: "SUB_Q_001", text: "Sub" }],
+      },
+      queries: [{ id: "QRY_001", subquestionId: "SUB_Q_001", query: "Sub" }],
+      sources: [
+        { id: "SRC_001", title: "One", type: "PAPER" },
+        { id: "SRC_002", title: "Two", type: "PAPER" },
+      ],
+      evidence: [
+        {
+          id: "EVID_001",
+          sourceId: "SRC_001",
+          statement: "A",
+          supportsClaims: ["CLM_001"],
+          contradictsClaims: [],
+          confidence: 0.9,
+        },
+        {
+          id: "EVID_002",
+          sourceId: "SRC_002",
+          statement: "B",
+          supportsClaims: ["CLM_002"],
+          contradictsClaims: [],
+          confidence: 0.8,
+        },
+      ],
+      claims: [
+        makeClaim({ id: "CLM_001", evidenceIds: ["EVID_001"] }),
+        makeClaim({ id: "CLM_002", evidenceIds: ["EVID_002"] }),
+      ],
+      contradictions: [],
+      gaps: [],
+    }
+    const { verifications } = verifyHypotheses({
+      hypotheses: [makeHypothesis({ id: "HYP_001", supportingClaims: ["CLM_001"] })],
+      research: bundle,
+    })
+    const service = new TraceService(bundle, verifications)
+    expect(service.traceClaim("CLM_001")!.verifications).toHaveLength(1)
+    expect(service.traceClaim("CLM_002")!.verifications).toHaveLength(0)
+  })
+
   it("builds a shot→claim→evidence→source report", async () => {
     const bundle = await engineFor("Can humanity become a new species?").run()
     const claim = bundle.claims[0]!
@@ -386,6 +619,38 @@ describe("TraceService", () => {
     expect(report.entries[0]!.evidenceIds?.length).toBeGreaterThanOrEqual(1)
     expect(report.entries[0]!.sourceTitles.length).toBeGreaterThanOrEqual(1)
   })
+
+  it("traces a query forward to sources and evidence", async () => {
+    const bundle = await engineFor("Can humanity become a new species?").run()
+    const queryId = bundle.queries[0]!.id
+    const trace = new TraceService(bundle).traceQuery(queryId)
+    expect(trace).toBeDefined()
+    expect(trace!.query.id).toBe(queryId)
+    expect(trace!.subQuestion).toBeDefined()
+    expect(trace!.sources.length).toBeGreaterThanOrEqual(1)
+    expect(trace!.evidence.length).toBeGreaterThanOrEqual(1)
+    expect(trace!.sources[0]!.queryId).toBe(queryId)
+  })
+
+  it("traces a source back to its query and evidence", async () => {
+    const bundle = await engineFor("Can humanity become a new species?").run()
+    const source = bundle.sources[0]!
+    const trace = new TraceService(bundle).traceSource(source.id)
+    expect(trace).toBeDefined()
+    expect(trace!.source.id).toBe(source.id)
+    expect(trace!.query).toBeDefined()
+    expect(trace!.evidence.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("traces evidence to its source and claims", async () => {
+    const bundle = await engineFor("Can humanity become a new species?").run()
+    const evidenceItem = bundle.evidence[0]!
+    const trace = new TraceService(bundle).traceEvidence(evidenceItem.id)
+    expect(trace).toBeDefined()
+    expect(trace!.evidence.id).toBe(evidenceItem.id)
+    expect(trace!.source?.id).toBe(evidenceItem.sourceId)
+    expect(trace!.supportsClaims.length).toBeGreaterThanOrEqual(1)
+  })
 })
 
 describe("cached search provider", () => {
@@ -411,4 +676,33 @@ describe("cached search provider", () => {
 
 function cacheKeyOf(request: { query: string; limit?: number }): string {
   return requestCacheKey(request)
+}
+
+interface EchoedSource {
+  id: string
+  title: string
+  snippet?: string
+  content?: string
+}
+
+/**
+ * LLM selection that mirrors evidence-extraction input: when full page content
+ * was fetched it echoes "From full text", otherwise it falls back to the snippet.
+ */
+function contentEchoSelection(request: LLMRequest): { text: string } | null {
+  if (request.meta?.stage !== "evidence-extraction") return null
+  const input = parseJsonObject(request.prompt) as { sources?: EchoedSource[] }
+  const evidence = (input.sources ?? []).map((source) => ({
+    id: `${source.id}-EV`,
+    sourceId: source.id,
+    statement:
+      source.content && source.content.length > 0
+        ? `From full text: ${source.content.slice(0, 300)}`
+        : `From snippet: ${source.snippet ?? "no content"}`,
+    excerpt: source.content ?? source.snippet,
+    supportsClaims: [],
+    contradictsClaims: [],
+    confidence: 0.8,
+  }))
+  return { text: JSON.stringify({ evidence }) }
 }

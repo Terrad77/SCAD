@@ -10,7 +10,7 @@ You are the EVIDENCE EXTRACTION stage of SCAD. From each collected source you ex
 - `location` — the URL or locator of the evidence within the source.
 - `sourceId` MUST be one of the source ids provided in the input.
 - `supportsClaims` / `contradictsClaims` — leave empty; they are linked deterministically later.
-- Assign each evidence a stable unique `id` like `EVID_001`, `EVID_002`, ...
+- `id` is assigned by the engine, not by you — any non-empty placeholder value is accepted and will be overwritten deterministically.
 - Confidence is assigned centrally and will be overwritten; do not guess it.
 - Respond with ONLY a JSON object.
 

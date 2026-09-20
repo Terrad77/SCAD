@@ -1,6 +1,8 @@
 import type { LLMProvider, LLMRequest } from "./llm.js"
 import { OpenCodeProvider } from "./opencode.js"
 import { OllamaProvider } from "./ollama.js"
+import { OpenAIProvider } from "./openai.js"
+import { AnthropicProvider } from "./anthropic.js"
 import { MockLLMProvider } from "./mock.js"
 import { DEMO_STAGE_RESPONSES } from "./mockFixtures.js"
 
@@ -10,12 +12,16 @@ export interface LLMInstance {
   model?: string
 }
 
-export function createLLMProvider(config: {
+export interface LLMFactoryConfig {
   provider: string
   opencodeModel?: string
   ollamaBaseUrl?: string
   ollamaModel?: string
-}): LLMInstance {
+  openaiModel?: string
+  anthropicModel?: string
+}
+
+export function createLLMProvider(config: LLMFactoryConfig): LLMInstance {
   switch (config.provider) {
     case "ollama": {
       const provider = new OllamaProvider({
@@ -23,6 +29,14 @@ export function createLLMProvider(config: {
         model: config.ollamaModel,
       })
       return { provider, name: "ollama", model: config.ollamaModel }
+    }
+    case "openai": {
+      const provider = new OpenAIProvider({ model: config.openaiModel })
+      return { provider, name: "openai", model: config.openaiModel }
+    }
+    case "anthropic": {
+      const provider = new AnthropicProvider({ model: config.anthropicModel })
+      return { provider, name: "anthropic", model: config.anthropicModel }
     }
     case "mock": {
       // Serve canned demo output per stage so the CLI works fully offline.

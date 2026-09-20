@@ -7,6 +7,11 @@ import { CLAIM_PREFIX, makeId } from "./ids.js"
 export interface ClaimExtractionInput {
   question: string
   evidence: Evidence[]
+  /**
+   * Index base for deterministic claim ids. The engine threads this through
+   * so ids stay globally unique across the initial and follow-up rounds.
+   */
+  claimIdStart?: number
 }
 
 /**
@@ -33,12 +38,12 @@ export class ClaimExtractor {
       },
       { maxRetries: 0 },
     )
-    return this.normalize(output, input.evidence)
+    return this.normalize(output, input.evidence, input.claimIdStart ?? 0)
   }
 
-  private normalize(output: ClaimsOutput, evidence: Evidence[]): Claim[] {
+  private normalize(output: ClaimsOutput, evidence: Evidence[], claimIdStart: number): Claim[] {
     const evidenceById = new Map(evidence.map((ev) => [ev.id, ev]))
-    return output.claims.map((claim) => {
+    return output.claims.map((claim, index) => {
       const ids = (claim.evidenceIds ?? []).filter((id) => evidenceById.has(id))
       if (ids.length === 0) {
         getLogger().warn(
@@ -50,7 +55,13 @@ export class ClaimExtractor {
         claim.sources.length > 0
           ? claim.sources
           : dedupeSources(ids.map((id) => evidenceById.get(id)!.sourceId))
-      return { ...claim, evidenceIds: ids, sources }
+      return {
+        ...claim,
+        // Always re-key: the engine owns ids and keeps them unique across runs.
+        id: makeId(CLAIM_PREFIX, claimIdStart + index + 1),
+        evidenceIds: ids,
+        sources,
+      }
     })
   }
 }
@@ -64,14 +75,14 @@ function dedupeSources(ids: string[]): string[] {
  * the LLM claim-extraction stage is unavailable or its output is invalid, so
  * the research reports still list every evidence-backed claim.
  */
-export function deriveClaimsFromEvidence(evidence: Evidence[]): Claim[] {
+export function deriveClaimsFromEvidence(evidence: Evidence[], claimIdStart = 0): Claim[] {
   let counter = 0
   return evidence
     .map((ev): Claim | null => {
       if (ev.confidence < 0.5) return null
       counter += 1
       return {
-        id: makeId(CLAIM_PREFIX, counter),
+        id: makeId(CLAIM_PREFIX, claimIdStart + counter),
         statement: ev.statement,
         sources: [ev.sourceId],
         evidence: [ev.statement],

@@ -26,6 +26,14 @@ describe("JsonMemoryStore", () => {
     expect(await store.get("missing")).toBeNull()
   })
 
+  it("rejects unsafe keys (path traversal) instead of writing outside the store", async () => {
+    for (const key of ["../escape", "a/../b", "nested/dir", "..\\escape", ".hidden"]) {
+      await expect(store.save(key, { value: 1 })).rejects.toThrow(/unsafe/)
+      expect(await store.get(key)).toBeNull()
+    }
+    await expect(store.get("../escape")).resolves.toBeNull()
+  })
+
   it("removes a key", async () => {
     await store.save("claims", [1])
     await store.remove("claims")

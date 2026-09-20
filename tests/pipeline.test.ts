@@ -50,6 +50,23 @@ describe("Pipeline", () => {
     expect(ran).toEqual([...PIPELINE_ORDER])
   })
 
+  it("regenerates only the stages listed in forceStages", async () => {
+    for (const stage of PIPELINE_ORDER) {
+      await memory.save(stage, { done: true })
+    }
+    const ran: string[] = []
+    const p = new Pipeline(memory, new AutoApprover(), async (stage) => {
+      ran.push(stage)
+      return { stage, regenerated: true }
+    })
+    await p.run(false, new Set(["narrative", "selfCheck"]))
+    expect(ran).toEqual(["narrative", "selfCheck"])
+    expect(await memory.get("narrative")).toEqual({ stage: "narrative", regenerated: true })
+    expect(await memory.get("selfCheck")).toEqual({ stage: "selfCheck", regenerated: true })
+    expect(await memory.get("research")).toEqual({ done: true })
+    expect(await memory.get("visual")).toEqual({ done: true })
+  })
+
   it("rejects a stage and stops the pipeline", async () => {
     const p = new Pipeline(memory, new RejectingApprover(["research"]), async (stage) => ({
       stage,

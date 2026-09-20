@@ -11,6 +11,7 @@ import type {
 import { StructuredAgent } from "../../core/structured-agent.js"
 import type { SearchProvider, SearchResult } from "../../providers/search/search-provider.js"
 import { dedupeSearchResults } from "../../providers/search/normalize.js"
+import type { ContentProvider } from "../../providers/content/content-provider.js"
 import { SourceRegistry } from "../../core/sources/source-registry.js"
 import { getLogger, type Logger } from "../../core/log.js"
 import { ResearchPlanner } from "./research-planner.js"
@@ -27,16 +28,54 @@ interface SourceBundle {
   url?: string
   snippet?: string
   reliability?: number
+  content?: string
+}
+
+/** A follow-up query selected for a research gap, carrying the gap that spawned it. */
+interface FollowUpQuery {
+  query: string
+  gap: ResearchGap
+}
+
+/**
+ * Maps a research gap back to a sub-question. The gap's explicit
+ * `subquestionId` wins; a text heuristic is the legacy fallback, then the
+ * first claim's sub-question, then the plan's first sub-question.
+ */
+export function resolveSubquestion(
+  plan: ResearchBundle["plan"],
+  gap: { subquestionId?: string; suggestedResearchQueries: string[]; question: string },
+  claims: Claim[],
+): string {
+  if (gap.subquestionId) {
+    const explicit = plan.subQuestions.find((sub) => sub.id === gap.subquestionId)
+    if (explicit) return explicit.id
+  }
+  const gapQuery = gap.suggestedResearchQueries[0] ?? gap.question
+  const byText = plan.subQuestions.find((sub) =>
+    gapQuery.toLowerCase().includes(sub.text.toLowerCase()),
+  )
+  if (byText) return byText.id
+  for (const claim of claims) {
+    if (claim.subquestionIds && claim.subquestionIds.length > 0) return claim.subquestionIds[0]!
+  }
+  return plan.subQuestions[0]!.id
 }
 
 export interface ResearchEngineOptions {
   question: string
   agent: StructuredAgent
   search: SearchProvider
+  /** Optional full-content fetcher; snippets are used when absent/offline. */
+  content?: ContentProvider
   maxSubQuestions?: number
   maxFollowUpRounds?: number
   followUpLimit?: number
   maxSourcesPerQuery?: number
+  /** Global cap on how many sources the registry may collect. */
+  maxSources?: number
+  /** Per-source content length limit (characters). */
+  maxContentBytes?: number
   logger?: Logger
 }
 
@@ -55,6 +94,8 @@ export class ResearchEngine {
   private readonly maxFollowUpRounds: number
   private readonly followUpLimit: number
   private readonly maxSourcesPerQuery: number
+  private readonly maxSources: number
+  private readonly maxContentBytes: number
 
   constructor(private readonly options: ResearchEngineOptions) {
     this.logger = options.logger ?? getLogger()
@@ -62,6 +103,8 @@ export class ResearchEngine {
     this.maxFollowUpRounds = options.maxFollowUpRounds ?? 1
     this.followUpLimit = options.followUpLimit ?? 2
     this.maxSourcesPerQuery = options.maxSourcesPerQuery ?? 8
+    this.maxSources = options.maxSources ?? 40
+    this.maxContentBytes = options.maxContentBytes ?? 8_000
   }
 
   async run(): Promise<ResearchBundle> {
@@ -83,8 +126,11 @@ export class ResearchEngine {
     for (let i = 0; i < queries.length; i += 1) {
       const query = queries[i]!
       this.logger.info("research", `executing query ${i + 1}/${queries.length}: ${query.query}`)
-      const results = dedupeSearchResults(
-        await this.options.search.search({ query: query.query, limit: this.maxSourcesPerQuery }),
+      const results = this.capResults(
+        registry,
+        dedupeSearchResults(
+          await this.options.search.search({ query: query.query, limit: this.maxSourcesPerQuery }),
+        ),
       )
       collected.set(query.id, results)
       registry.addSearchResults(
@@ -116,42 +162,49 @@ export class ResearchEngine {
       if (followUpQueries.length === 0) break
       this.logger.info("research", `follow-up queries: ${followUpQueries.length}`)
       const followUpEvidence: Evidence[] = []
-      for (const gapQuery of followUpQueries) {
+      for (const followUpQuery of followUpQueries) {
         const query: SearchQuery = {
           id: makeId(QUERY_PREFIX, nextQueryIndex),
-          subquestionId: this.resolveSubquestion(plan, gapQuery, claims),
-          query: gapQuery,
+          subquestionId: this.resolveSubquestion(plan, followUpQuery.gap, claims),
+          query: followUpQuery.query,
         }
         nextQueryIndex += 1
         queries.push(query)
         const results = dedupeSearchResults(
-          await this.options.search.search({ query: gapQuery, limit: this.maxSourcesPerQuery }),
+          await this.options.search.search({
+            query: followUpQuery.query,
+            limit: this.maxSourcesPerQuery,
+          }),
         )
-        const bundles = registry
-          .addSearchResults(
-            results,
-            { queryId: query.id, subquestionId: query.subquestionId },
-            sourceAnalyzer,
-          )
-          .map((s) => ({
-            id: s.id,
-            title: s.title,
-            url: s.url,
-            snippet: results.find((r) => r.url === s.url)?.snippet,
-            reliability: s.reliability,
-          }))
+        const bundles = await this.buildBundles(
+          registry
+            .addSearchResults(
+              this.capResults(registry, results),
+              { queryId: query.id, subquestionId: query.subquestionId },
+              sourceAnalyzer,
+            )
+            .map((s) => ({
+              id: s.id,
+              title: s.title,
+              url: s.url,
+              snippet: results.find((r) => r.url === s.url)?.snippet,
+              reliability: s.reliability,
+            })),
+          results,
+        )
         if (bundles.length === 0) continue
         followUpEvidence.push(
           ...(await extractFromBundles(this.logger, evidenceExtractor, {
             question: this.options.question,
-            subquestion: gapQuery,
+            subquestion: followUpQuery.query,
             sources: bundles,
+            evidenceIdStart: evidence.length + followUpEvidence.length,
           })),
         )
       }
       if (followUpEvidence.length === 0) break
       evidence = mergeUnique(evidence, followUpEvidence)
-      const newClaims = await this.extractClaims(claimExtractor, followUpEvidence)
+      const newClaims = await this.extractClaims(claimExtractor, followUpEvidence, claims.length)
       claims = mergeUnique(claims, newClaims)
       linkEvidence(evidence, claims, registry.all())
       contradictions = detectContradictions(claims)
@@ -164,10 +217,17 @@ export class ResearchEngine {
 
     return {
       question: this.options.question,
-      summary: this.buildSummary(plan.question, sources, evidence, claims, contradictions, gaps),
+      summary: this.buildSummary(
+        plan.question,
+        registry.all(),
+        evidence,
+        claims,
+        contradictions,
+        gaps,
+      ),
       plan,
       queries,
-      sources,
+      sources: registry.all(),
       evidence,
       claims,
       contradictions,
@@ -183,20 +243,17 @@ export class ResearchEngine {
     }))
   }
 
-  /** Maps a follow-up query back to an existing sub-question where possible. */
+  /**
+   * Maps a gap back to the sub-question it concerns. The gap's explicit
+   * `subquestionId` wins; a text heuristic is kept only as a legacy fallback
+   * for gaps produced without one.
+   */
   private resolveSubquestion(
     plan: ResearchBundle["plan"],
-    gapQuery: string,
+    gap: ResearchGap,
     claims: Claim[],
   ): string {
-    const gap = plan.subQuestions.find((sub) =>
-      gapQuery.toLowerCase().includes(sub.text.toLowerCase()),
-    )
-    if (gap) return gap.id
-    for (const claim of claims) {
-      if (claim.subquestionIds && claim.subquestionIds.length > 0) return claim.subquestionIds[0]!
-    }
-    return plan.subQuestions[0]!.id
+    return resolveSubquestion(plan, gap, claims)
   }
 
   private async collectEvidence(
@@ -209,41 +266,81 @@ export class ResearchEngine {
     for (const query of queries) {
       const results = collected.get(query.id) ?? []
       const querySources = sources.filter((s) => s.queryId === query.id)
-      const bundles = querySources.map((s) => ({
-        id: s.id,
-        title: s.title,
-        url: s.url,
-        snippet: results.find((r) => r.url === s.url)?.snippet,
-        reliability: s.reliability,
-      }))
+      const bundles = await this.buildBundles(querySources, results)
       if (bundles.length === 0) continue
       evidence.push(
         ...(await extractFromBundles(this.logger, extractor, {
           question: this.options.question,
           subquestion: query.query,
           sources: bundles,
+          evidenceIdStart: evidence.length,
         })),
       )
     }
     return mergeUnique(evidence, [])
   }
 
-  private async extractClaims(extractor: ClaimExtractor, evidence: Evidence[]): Promise<Claim[]> {
+  /** Cap results to respect the global per-run source limit. */
+  private capResults(registry: SourceRegistry, results: SearchResult[]): SearchResult[] {
+    const remaining = Math.max(0, this.maxSources - registry.size)
+    return results.slice(0, remaining)
+  }
+
+  /** Builds evidence-extraction bundles, enriching them with fetched content. */
+  private async buildBundles(
+    querySources: Array<Pick<Source, "id" | "title" | "url" | "reliability">>,
+    collectedResults: SearchResult[],
+  ): Promise<SourceBundle[]> {
+    const bundles: SourceBundle[] = []
+    for (const source of querySources) {
+      const bundle: SourceBundle = {
+        id: source.id,
+        title: source.title,
+        url: source.url,
+        snippet: collectedResults.find((r) => r.url === source.url)?.snippet,
+        reliability: source.reliability,
+      }
+      const contentProvider = this.options.content
+      if (contentProvider && source.url) {
+        try {
+          const content = await contentProvider.fetchContent({
+            url: source.url,
+            maxBytes: this.maxContentBytes,
+          })
+          if (content.text.length > 0) bundle.content = content.text
+        } catch (error) {
+          this.logger.warn("content", `content fetch failed for ${source.url}: ${String(error)}`)
+        }
+      }
+      bundles.push(bundle)
+    }
+    return bundles
+  }
+
+  private async extractClaims(
+    extractor: ClaimExtractor,
+    evidence: Evidence[],
+    claimIdStart = 0,
+  ): Promise<Claim[]> {
     try {
-      return await extractor.run({ question: this.options.question, evidence })
+      return await extractor.run({
+        question: this.options.question,
+        evidence,
+        claimIdStart,
+      })
     } catch {
       this.logger.warn("claims", "falling back to deterministic claim derivation from evidence")
-      return deriveClaimsFromEvidence(evidence)
+      return deriveClaimsFromEvidence(evidence, claimIdStart)
     }
   }
 
-  private selectFollowUpQueries(gaps: ResearchGap[]): string[] {
+  private selectFollowUpQueries(gaps: ResearchGap[]): FollowUpQuery[] {
     const sorted = [...gaps].sort((a, b) => b.importance - a.importance)
-    const queries: string[] = []
+    const queries: FollowUpQuery[] = []
     for (const gap of sorted) {
       for (const q of gap.suggestedResearchQueries) {
         if (queries.length >= this.followUpLimit) return queries
-        if (!queries.includes(q)) queries.push(q)
+        if (!queries.some((entry) => entry.query === q)) queries.push({ query: q, gap })
       }
     }
     return queries
@@ -326,7 +423,12 @@ function mergeUnique<T extends { id: string }>(existing: T[], incoming: T[]): T[
 async function extractFromBundles(
   logger: Logger,
   extractor: EvidenceExtractor,
-  input: { question: string; subquestion: string; sources: SourceBundle[] },
+  input: {
+    question: string
+    subquestion: string
+    sources: SourceBundle[]
+    evidenceIdStart?: number
+  },
 ): Promise<Evidence[]> {
   try {
     return await extractor.run(input)

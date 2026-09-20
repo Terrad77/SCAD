@@ -77,7 +77,6 @@ export function detectResearchGaps(input: ResearchGapInput): ResearchGap[] {
 
   // Sub-questions with no gathered evidence.
   const covered = new Set<string>()
-  const evidenceIndex = new Map<string, string[]>()
   for (const evidence of input.evidence) {
     for (const claimId of evidence.supportsClaims) {
       const claim = input.claims.find((c) => c.id === claimId)
@@ -86,7 +85,6 @@ export function detectResearchGaps(input: ResearchGapInput): ResearchGap[] {
     }
     for (const subId of evidenceForSubquestions(evidence, input.claims)) covered.add(subId)
   }
-  void evidenceIndex
   for (const sub of input.plan.subQuestions) {
     if (covered.has(sub.id)) continue
     push({
@@ -94,6 +92,7 @@ export function detectResearchGaps(input: ResearchGapInput): ResearchGap[] {
       importance: 0.7,
       relatedClaims: [],
       suggestedResearchQueries: [sub.text, `${sub.text} direct evidence`],
+      subquestionId: sub.id,
     })
   }
 

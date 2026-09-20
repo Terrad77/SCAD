@@ -13,7 +13,14 @@ export interface EvidenceExtractionInput {
     url?: string
     snippet?: string
     reliability?: number
+    /** Optional full page text from a ContentProvider. */
+    content?: string
   }>
+  /**
+   * Index base for deterministic evidence ids. The engine threads this through
+   * per-query so ids stay globally unique across queries and follow-up rounds.
+   */
+  evidenceIdStart?: number
 }
 
 /**
@@ -37,22 +44,22 @@ export class EvidenceExtractor {
       },
       { maxRetries: 0 },
     )
-    return this.canonicize(output, input.sources)
+    return this.canonicize(output, input.sources, input.evidenceIdStart ?? 0)
   }
 
   private canonicize(
     output: EvidenceOutput,
     sources: EvidenceExtractionInput["sources"],
+    evidenceIdStart: number,
   ): Evidence[] {
     const sourceById = new Map(sources.map((s) => [s.id, s]))
-    let counter = 0
-    return output.evidence.map((ev) => {
+    return output.evidence.map((ev, index) => {
       const source = sourceById.get(ev.sourceId)
       const reliability = source?.reliability ?? 0.5
-      counter += 1
       return {
         ...ev,
-        id: ev.id ?? makeId(EVIDENCE_PREFIX, counter),
+        // Always re-key: the engine owns ids and keeps them unique across runs.
+        id: makeId(EVIDENCE_PREFIX, evidenceIdStart + index + 1),
         confidence: computeEvidenceConfidence({ sourceReliability: reliability }),
       }
     })
@@ -65,14 +72,13 @@ export class EvidenceExtractor {
  * available (offline/no canned response).
  */
 export function buildFallbackEvidence(input: EvidenceExtractionInput): Evidence[] {
-  let counter = 0
+  const evidenceIdStart = input.evidenceIdStart ?? 0
   return input.sources
     .filter((src) => src.title && src.title.length > 0)
-    .map((src) => {
-      counter += 1
+    .map((src, index) => {
       const reliability = clamp(src.reliability ?? 0.5)
       return {
-        id: makeId(EVIDENCE_PREFIX, counter),
+        id: makeId(EVIDENCE_PREFIX, evidenceIdStart + index + 1),
         sourceId: src.id,
         statement: `From "${src.title}": ${src.snippet ?? "available background material."}`,
         excerpt: src.snippet,

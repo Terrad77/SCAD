@@ -1,5 +1,6 @@
 import type { SearchProvider, SearchRequest, SearchResult } from "./search-provider.js"
 import { requestCacheKey, DEFAULT_SEARCH_LIMIT } from "./normalize.js"
+import type { CacheStore } from "../cache/file-cache.js"
 
 /** Cache store for repeated search queries (keyed by a stable query hash). */
 export interface SearchCache {
@@ -51,5 +52,25 @@ export class CachedSearchProvider implements SearchProvider {
   /** Clears the internal hit log (used by tests to assert cache behavior). */
   resetLog(): void {
     this.hitLog.length = 0
+  }
+}
+
+/**
+ * Search cache persisted as JSON files on disk. Keys are prefixed by the
+ * enclosing provider name so two providers never share a query entry.
+ */
+export class FileSearchCache implements SearchCache {
+  constructor(
+    private readonly backing: CacheStore,
+    private readonly providerName = "search",
+  ) {}
+
+  async get(key: string): Promise<SearchResult[] | null> {
+    const value = await this.backing.get<SearchResult[]>(`${this.providerName}:${key}`)
+    return Array.isArray(value) ? value : null
+  }
+
+  async set(key: string, results: SearchResult[]): Promise<void> {
+    await this.backing.set(`${this.providerName}:${key}`, results)
   }
 }

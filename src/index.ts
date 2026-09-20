@@ -34,8 +34,31 @@ export type { SearchProvider, SearchResult } from "./providers/search/search-pro
 export {
   CachedSearchProvider,
   MemorySearchCache,
+  FileSearchCache,
 } from "./providers/search/cached-search-provider.js"
+export {
+  BraveSearchProvider,
+  parseBraveResponse,
+} from "./providers/search/brave-search-provider.js"
 export { createSearchProvider } from "./providers/search/factory.js"
+export type { SearchFactoryConfig } from "./providers/search/factory.js"
+export { fetchWithRetry, HttpRequestError } from "./providers/http.js"
+export type { RetryOptions, HttpResult } from "./providers/http.js"
+export { FileCache } from "./providers/cache/file-cache.js"
+export type { CacheStore } from "./providers/cache/file-cache.js"
+export { NoopContentProvider, isContentResult } from "./providers/content/content-provider.js"
+export type {
+  ContentProvider,
+  ContentRequest,
+  ContentResult,
+} from "./providers/content/content-provider.js"
+export { HttpContentProvider } from "./providers/content/http-content-provider.js"
+export { MockContentProvider } from "./providers/content/mock-content-provider.js"
+export { CachedContentProvider } from "./providers/content/cached-content-provider.js"
+export { createContentProvider } from "./providers/content/factory.js"
+export { extractPlainText, decodeHtmlEntities } from "./providers/content/html-text.js"
+export { OpenAIProvider } from "./providers/llm/openai.js"
+export { AnthropicProvider } from "./providers/llm/anthropic.js"
 export * from "./providers/llm/llm.js"
 export { OpenCodeProvider } from "./providers/llm/opencode.js"
 export { OllamaProvider } from "./providers/llm/ollama.js"
