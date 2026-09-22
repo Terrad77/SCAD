@@ -21,7 +21,9 @@ import type { ContentProvider } from "../providers/content/content-provider.js"
 import { FileCache, defaultCacheDir } from "../providers/cache/file-cache.js"
 import { renderResearchReport } from "../agents/research/research-report.js"
 import { TraceService } from "../core/trace.js"
-import type { ResearchBundle, ResearchIntelligenceReport } from "../core/schemas.js"
+import { StructuredAgent, readPromptFile } from "../core/structured-agent.js"
+import { ReasoningEngine } from "../agents/reasoning/reasoning-engine.js"
+import type { Hypothesis, ResearchBundle, ResearchIntelligenceReport } from "../core/schemas.js"
 import type { HypothesisVerification } from "../core/schemas.js"
 
 const DATA_DIR = process.env.SCAD_DATA_DIR ?? "data/projects"
@@ -477,5 +479,80 @@ export async function cmdIntelligence(
       `Intelligence for "${name}": completeness ${intelligence.completeness.score.toFixed(2)} (${intelligence.completeness.status}), ${intelligence.sourceIndependence.independentSources} independent / ${intelligence.sourceIndependence.dependentSources} dependent / ${intelligence.sourceIndependence.unknownSources} unknown sources, ${intelligence.unresolvedContradictions.length} unresolved contradictions, ${intelligence.unresolvedGaps.length} critical gaps, continueResearch ${intelligence.continueResearch}`,
     )
   }
+  return 0
+}
+
+/**
+ * v0.5 — Reasoning & Hypothesis Evolution: runs the decision–effect cycle over
+ * the v0.4 research artifacts and exports the reasoning trace + version log.
+ */
+export async function cmdReason(
+  name: string | undefined,
+  force: boolean,
+  provider?: string,
+  interactive = false,
+): Promise<number> {
+  if (!name) {
+    console.error(
+      "Usage: scad reason <project-name> [--force] [--interactive] [--provider <mock|brave>]",
+    )
+    return 1
+  }
+  if (!(await projectExists(DATA_DIR, name))) {
+    console.error(`Project "${name}" not found. Run "scad documentary ${name}" first.`)
+    return 1
+  }
+  const meta = await readMeta(DATA_DIR, name)
+  const dir = projectDir(DATA_DIR, name)
+  const memory = new JsonMemoryStore(dir.memoryDir)
+
+  const research = await memory.get<ResearchBundle>("research")
+  if (!research) {
+    console.error(`No research for "${name}". Run "scad documentary ${name}" first.`)
+    return 1
+  }
+  const hypotheses =
+    (await memory.get<{ hypotheses?: Hypothesis[] }>("hypotheses"))?.hypotheses ?? []
+
+  const approvals: ApprovalGate = interactive ? new HumanApprover(memory) : new AutoApprover()
+  if (force) {
+    await memory.remove("reasoning")
+    await memory.remove("hypothesis-versions")
+    await memory.remove("hypotheses")
+  }
+
+  const agent = new StructuredAgent(providerFromEnv().provider, readPromptFile)
+  const engine = new ReasoningEngine({
+    project: name,
+    question: meta?.question ?? research.question,
+    memory,
+    agent,
+    search: searchProviderFromEnv(provider),
+    research,
+    hypotheses,
+    approvals,
+    humanInTheLoop: interactive,
+    referenceDate: referenceDateFromEnv(),
+  })
+
+  const state = await engine.run()
+  const stopped = state.lastStopping
+  log(
+    `Reasoning for "${name}": status ${state.status}, ${state.steps.length} steps, cycle ${state.cycleContext?.cycleId ?? "none"}`,
+  )
+  if (stopped) log(`Stopped: ${stopped.stoppingKind} — ${stopped.reason}`)
+
+  const extras: Record<string, string> = {
+    "reasoning.json": JSON.stringify({ version: 1, state }, null, 2),
+  }
+  const versions = (await memory.get<unknown[]>("hypothesis-versions")) ?? []
+  if (versions.length > 0) {
+    extras["hypothesis-versions.json"] = JSON.stringify(versions, null, 2)
+  }
+  const active = await memory.get<unknown>("hypotheses")
+  if (active) extras["hypotheses.json"] = JSON.stringify(active, null, 2)
+  const intelligence = await memory.get<ResearchIntelligenceReport>("intelligence")
+  if (intelligence) extras["intelligence.json"] = JSON.stringify(intelligence, null, 2)
+  await exportArtifacts(dir, {}, extras)
   return 0
 }

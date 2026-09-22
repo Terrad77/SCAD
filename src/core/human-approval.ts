@@ -17,6 +17,7 @@ export class HumanApprover implements ApprovalGate {
     "hypotheses",
     "narrative",
     "selfCheck",
+    "reasoning",
   ])
 
   /** Pre-buffered lines from stdin so piped input is consumed reliably. */
@@ -179,7 +180,24 @@ export class HumanApprover implements ApprovalGate {
     if (stage === "hypotheses") return this.renderHypotheses(artifact as HypothesesOutput, heading)
     if (stage === "narrative") return this.renderNarrative(artifact as Narrative, heading)
     if (stage === "selfCheck") return this.renderSelfCheck(artifact as SelfCheckOutput, heading)
+    if (stage === "reasoning") return this.renderReasoning(artifact, heading)
     return `${heading}${JSON.stringify(artifact, null, 2).slice(0, 1500)}\n`
+  }
+
+  private renderReasoning(artifact: unknown, heading: string): string {
+    const candidate = artifact as {
+      kind?: string
+      target?: unknown
+      targetHypothesis?: string | null
+      question?: string
+    }
+    const target =
+      candidate.targetHypothesis !== undefined
+        ? `hypothesis ${candidate.targetHypothesis ?? "(new)"}`
+        : candidate.target !== undefined
+          ? JSON.stringify(candidate.target)
+          : ""
+    return `${heading}Reasoning action: ${candidate.kind ?? "(unknown)"}${target ? ` → ${target}` : ""}\n${candidate.question ? `  ${candidate.question}\n` : ""}`
   }
 
   private renderResearch(research: ResearchOutput | undefined, heading: string): string {

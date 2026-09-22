@@ -96,3 +96,48 @@ export { OllamaProvider } from "./providers/llm/ollama.js"
 export { MockLLMProvider, bySubstring, byKeyword } from "./providers/llm/mock.js"
 export * as schemas from "./core/schemas.js"
 export * from "./core/types.js"
+
+// v0.5 — Reasoning & Hypothesis Evolution
+export { ReasoningEngine } from "./agents/reasoning/reasoning-engine.js"
+export type { ReasoningEngineOptions, ExecuteResult } from "./agents/reasoning/reasoning-engine.js"
+export { planReasoning, repeatKeyOf } from "./agents/reasoning/action-selection.js"
+export { assessSituation } from "./agents/reasoning/situation-assessment.js"
+export type { SituationInput } from "./agents/reasoning/situation-assessment.js"
+export {
+  generateAlternative,
+  buildRevision,
+  buildRejection,
+  alternativeReasonFor,
+} from "./agents/reasoning/hypothesis-lifecycle.js"
+export type { HypothesisLifecycleContext } from "./agents/reasoning/hypothesis-lifecycle.js"
+export { runFollowUpResearch } from "./agents/reasoning/follow-up.js"
+export type { FollowUpOptions, FollowUpResult } from "./agents/reasoning/follow-up.js"
+export { buildReasoningTrace, renderReasoningTrace } from "./agents/reasoning/reasoning-trace.js"
+export type { ReasoningTrace, ReasoningStepTrace } from "./agents/reasoning/reasoning-trace.js"
+export { computeStateSignature } from "./core/reasoning/state-signature.js"
+export type { SignatureInput } from "./core/reasoning/state-signature.js"
+export {
+  verifySingleHypothesis,
+  verifyPureHypotheses,
+} from "./core/reasoning/hypothesis-verification.js"
+export {
+  appendVersion,
+  importHypotheses,
+  toActiveHypotheses,
+  latestVersion,
+  activeVersions,
+  versionIdOf,
+  versionCount,
+  buildVersion,
+} from "./core/reasoning/hypothesis-version.js"
+export {
+  ScopedMemory,
+  ACTION_WRITE_SCOPE,
+  WriteScopeViolationError,
+  EPISTEMIC_WRITE_KEYS,
+  CONTROL_WRITE_KEYS,
+  readScopeFor,
+} from "./core/memory/scoped-memory.js"
+export { describeStopping, STOPPING_KIND_LABELS } from "./core/reasoning/stopping.js"
+export * from "./core/reasoning/types.js"
+export * from "./core/reasoning/schemas.js"

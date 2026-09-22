@@ -205,4 +205,23 @@ export const DEMO_STAGE_RESPONSES: Record<string, string> = {
       },
     ],
   }),
+  revision: JSON.stringify({
+    statement:
+      "Genetic engineering may bypass natural selection and create a new form of human, subject to the heritability and long-term fitness of edited traits.",
+  }),
+  "alternative-explanations": JSON.stringify({
+    hypothesis: {
+      statement:
+        "Technological culture alone may drive human divergence, without any heritable genetic change being required.",
+      basis: [
+        "Cultural and environmental selection pressures can split populations behaviorally.",
+        "The claim that technology changes selective pressures does not imply a genetic split.",
+      ],
+      supportingClaims: ["CLM_002"],
+      contradictingClaims: ["CLM_003"],
+      assumptions: ["A genetically altered lineage is not required for divergence."],
+      missingInfo: ["Longitudinal evidence of panmixia vs. genetic isolation."],
+      verificationTasks: ["Check interbreeding models for genetically edited populations."],
+    },
+  }),
 }
