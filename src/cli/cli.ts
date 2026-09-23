@@ -524,7 +524,9 @@ export async function cmdReason(
   const agent = new StructuredAgent(providerFromEnv().provider, readPromptFile)
   const engine = new ReasoningEngine({
     project: name,
-    question: meta?.question ?? research.question,
+    // Like cmdDocumentary/cmdStage, fall through an empty meta question to the
+    // research baseline; the persisted reasoning state must stay schema-round-trippable.
+    question: meta?.question?.trim() || research.question || name,
     memory,
     agent,
     search: searchProviderFromEnv(provider),

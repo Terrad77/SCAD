@@ -75,8 +75,10 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     expect(versions[0]!.versionId).toBe("HYP_001_V1")
     expect(versions[0]!.reason).toBe("imported from the hypotheses stage")
     const active = await memory.get("hypotheses")
-    expect(active).toHaveLength(1)
-    expect(active[0]!.id).toBe("HYP_001")
+    expect(active.hypotheses).toHaveLength(1)
+    expect(active.hypotheses[0]!.id).toBe("HYP_001")
+    expect(active.verifications).toHaveLength(1)
+    expect(active.verifications[0]!.hypothesisId).toBe("HYP_001")
   })
 
   it("never mutates the baseline research bundle (research is read-only for reasoning)", async () => {
@@ -168,7 +170,7 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     const rejected = versions.filter((v) => v.status === "REJECTED")
     expect(rejected).toHaveLength(1)
     expect(versions).toHaveLength(3)
-    expect(await memory.get("hypotheses")).toHaveLength(1)
+    expect((await memory.get("hypotheses")).hypotheses).toHaveLength(1)
     expect(await memory.get("research")).toEqual(makeResearchBundle())
   })
 

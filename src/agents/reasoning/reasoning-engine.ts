@@ -3,7 +3,12 @@ import { ScopedMemory, readScopeFor } from "../../core/memory/scoped-memory.js"
 import { AutoApprover, type ApprovalGate } from "../../core/pipeline.js"
 import type { StructuredAgent } from "../../core/structured-agent.js"
 import type { SearchProvider } from "../../providers/search/search-provider.js"
-import type { Hypothesis, ResearchBundle, ResearchIntelligenceReport } from "../../core/schemas.js"
+import type {
+  Hypothesis,
+  HypothesisVerification,
+  ResearchBundle,
+  ResearchIntelligenceReport,
+} from "../../core/schemas.js"
 import type { HypothesisVersion } from "../../core/reasoning/types.js"
 import type {
   CycleContext,
@@ -288,16 +293,21 @@ export class ReasoningEngine {
   private async seedFirstCycle(referenceDate: string): Promise<void> {
     const existing = await this.readVersions()
     if (existing.length > 0) return
-    const research = await this.memory.get<ResearchBundle>("research")
-    const bundle = research ?? this.options.research
+    const bundle = (await this.memory.get<ResearchBundle>("research")) ?? this.options.research
     const seeded = importHypotheses(this.options.hypotheses, "STEP_000")
     await this.memory.save("hypothesis-versions", seeded)
-    await this.memory.save("hypotheses", toActiveHypotheses(seeded))
+    await this.memory.save("hypotheses", this.hypothesesArtifact(seeded, bundle))
+    // Intelligence is only (re)built when it does not yet exist: at a cycle
+    // boundary the epistemic state is unchanged, so the persisted report is
+    // kept byte-for-byte instead of being rewritten with cycle-specific limits.
     if (bundle) {
-      await this.memory.save(
-        "intelligence",
-        this.rebuildIntelligence(bundle, seeded, referenceDate),
-      )
+      const existingIntelligence = await this.memory.get<ResearchIntelligenceReport>("intelligence")
+      if (existingIntelligence === null) {
+        await this.memory.save(
+          "intelligence",
+          this.rebuildIntelligence(bundle, seeded, referenceDate),
+        )
+      }
     }
   }
 
@@ -425,7 +435,7 @@ export class ReasoningEngine {
     const intelligence = this.rebuildIntelligence(research, versions, cycleContext.referenceDate)
     await this.epistemicWrite("GENERATE_HYPOTHESIS", {
       "hypothesis-versions": versions,
-      hypotheses: toActiveHypotheses(versions),
+      hypotheses: this.hypothesesArtifact(versions, research),
       intelligence,
     })
     return {
@@ -433,6 +443,24 @@ export class ReasoningEngine {
       intelligence,
       writes: ["hypotheses", "hypothesis-versions", "intelligence"],
       notes: [note ?? `generated ${next.versionId}: "${next.statement.slice(0, 80)}"`],
+    }
+  }
+
+  /**
+   * The published `hypotheses` artifact keeps the v0.4 wrapper shape
+   * `{ hypotheses, verifications }` so the pipeline stages, the trace viewer
+   * and re-seeding all consume a consistent, non-destructive format. The
+   * version log remains the source of truth; verifications are the pure
+   * derivative of the active pointers (never written into the versions).
+   */
+  private hypothesesArtifact(
+    versions: HypothesisVersion[],
+    research: ResearchBundle | undefined,
+  ): { hypotheses: Hypothesis[]; verifications: HypothesisVerification[] } {
+    const hypotheses = toActiveHypotheses(versions)
+    return {
+      hypotheses,
+      verifications: verifyPureHypotheses({ hypotheses, research }),
     }
   }
 
