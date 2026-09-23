@@ -5,5 +5,6 @@ runs/
 data/
 examples/*.tmp
 
-# Local agent instructions (kept out of the repo)
+# Local agent instructions and configuration (kept out of the repo)
 AGENTS.md
+opencode.json
