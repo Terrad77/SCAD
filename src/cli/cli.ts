@@ -23,6 +23,7 @@ import { renderResearchReport } from "../agents/research/research-report.js"
 import { TraceService } from "../core/trace.js"
 import { StructuredAgent, readPromptFile } from "../core/structured-agent.js"
 import { ReasoningEngine } from "../agents/reasoning/reasoning-engine.js"
+import { isIntelligenceEnvelope } from "../agents/reasoning/intelligence-envelope.js"
 import type { Hypothesis, ResearchBundle, ResearchIntelligenceReport } from "../core/schemas.js"
 import type { HypothesisVerification } from "../core/schemas.js"
 
@@ -30,6 +31,16 @@ const DATA_DIR = process.env.SCAD_DATA_DIR ?? "data/projects"
 
 export function log(text: string): void {
   console.log(`[scad] ${text}`)
+}
+
+/** Reads the persisted intelligence verdict, unwrapping the v0.6 envelope. */
+export async function readIntelligenceReport(
+  store: JsonMemoryStore,
+): Promise<ResearchIntelligenceReport | null> {
+  const raw = await store.get<unknown>("intelligence")
+  if (raw === null) return null
+  if (isIntelligenceEnvelope(raw)) return raw.report
+  return raw as ResearchIntelligenceReport
 }
 
 function envInt(name: string, fallback: number): number {
@@ -401,7 +412,7 @@ export async function cmdTrace(name: string | undefined): Promise<number> {
     return 1
   }
   const verifications = await readVerifications(dir.memoryDir)
-  const intelligence = await store.get<ResearchIntelligenceReport>("intelligence")
+  const intelligence = await readIntelligenceReport(store)
   const service = new TraceService(research, verifications, intelligence ?? undefined)
   const report = service.report(
     narrative as Parameters<typeof renderScript>[0],
@@ -439,7 +450,7 @@ export async function cmdIntelligence(
   }
   const dir = projectDir(DATA_DIR, name)
   const store = new JsonMemoryStore(dir.memoryDir)
-  const intelligence = await store.get<ResearchIntelligenceReport>("intelligence")
+  const intelligence = await readIntelligenceReport(store)
   if (!intelligence) {
     log(`No intelligence report for "${name}". Run "scad documentary ${name}" first.`)
     return 1
@@ -515,11 +526,6 @@ export async function cmdReason(
     (await memory.get<{ hypotheses?: Hypothesis[] }>("hypotheses"))?.hypotheses ?? []
 
   const approvals: ApprovalGate = interactive ? new HumanApprover(memory) : new AutoApprover()
-  if (force) {
-    await memory.remove("reasoning")
-    await memory.remove("hypothesis-versions")
-    await memory.remove("hypotheses")
-  }
 
   const agent = new StructuredAgent(providerFromEnv().provider, readPromptFile)
   const engine = new ReasoningEngine({
@@ -537,7 +543,7 @@ export async function cmdReason(
     referenceDate: referenceDateFromEnv(),
   })
 
-  const state = await engine.run()
+  const state = await engine.run({ force })
   const stopped = state.lastStopping
   log(
     `Reasoning for "${name}": status ${state.status}, ${state.steps.length} steps, cycle ${state.cycleContext?.cycleId ?? "none"}`,
@@ -553,7 +559,7 @@ export async function cmdReason(
   }
   const active = await memory.get<unknown>("hypotheses")
   if (active) extras["hypotheses.json"] = JSON.stringify(active, null, 2)
-  const intelligence = await memory.get<ResearchIntelligenceReport>("intelligence")
+  const intelligence = await readIntelligenceReport(memory)
   if (intelligence) extras["intelligence.json"] = JSON.stringify(intelligence, null, 2)
   await exportArtifacts(dir, {}, extras)
   return 0

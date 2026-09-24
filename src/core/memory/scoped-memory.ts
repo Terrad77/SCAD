@@ -76,6 +76,10 @@ export class ScopedMemory implements MemoryStore {
     return this.inner.get<T>(key)
   }
 
+  async readRaw(key: string): Promise<string | null> {
+    return this.inner.readRaw(key)
+  }
+
   async search(query: string): Promise<unknown[]> {
     return this.inner.search(query)
   }

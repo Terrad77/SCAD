@@ -1,7 +1,14 @@
 import type { Hypothesis, HypothesesOutput, HypothesisVerification } from "../schemas.js"
+import type { ResearchIntelligenceReport } from "../schemas.js"
 
 /**
- * v0.5 — Reasoning & Hypothesis Evolution domain types.
+ * v0.5 + v0.6 — Reasoning & Hypothesis Evolution domain types.
+ *
+ * v0.6 adds the persistent cycle model: the `reasoning` key becomes a version-2
+ * ReasoningCursor (session identity, next step number, consumed decisions), a
+ * separate `reasoning-history` ledger holds one sealed ReasoningCycle per
+ * cycle, `decisions` holds durable governances records, and `intelligence` is
+ * persisted inside an explicit envelope (`IntelligenceEnvelope`).
  *
  * The reasoning cycle is a decision–effect loop over the epistemic state. Two
  * kinds of state exist and are kept apart:
@@ -18,6 +25,8 @@ export const EMPTY_HYPOTHESES: HypothesesOutput = { hypotheses: [] }
 
 export const STEP_PREFIX = "STEP"
 export const CYCLE_PREFIX = "CYC"
+export const SESSION_PREFIX = "SSN"
+export const DECISION_PREFIX = "DEC"
 
 export const REASONING_ACTION_KINDS = [
   "RESEARCH",
@@ -41,8 +50,36 @@ export type StoppingKind = (typeof STOPPING_KINDS)[number]
 export const STEP_STATUSES = ["COMPLETED", "BLOCKED", "SKIPPED", "FAILED"] as const
 export type StepStatus = (typeof STEP_STATUSES)[number]
 
-export const REASONING_STATUSES = ["RUNNING", "STOPPED", "NEEDS_HUMAN"] as const
+/** v0.6: PAUSED replaces the v0.5 NEEDS_HUMAN terminal-lookalike. */
+export const REASONING_STATUSES = ["RUNNING", "PAUSED", "STOPPED"] as const
 export type ReasoningStatus = (typeof REASONING_STATUSES)[number]
+
+export const REASON_CYCLE_TRIGGERS = [
+  "first",
+  "epistemic-change",
+  "temporal-change",
+  "budget-change",
+  "governance-change",
+  "explicit-request",
+] as const
+export type ReasonCycleTrigger = (typeof REASON_CYCLE_TRIGGERS)[number]
+
+/**
+ * Ledger cycle statuses. `SEEDED` is the pre-seal header row written at cycle
+ * start (idempotent, before any epistemic action); `COMPLETED` / `PAUSED` /
+ * `RECOVERED` are terminal/owner-abandoned seals (F3).
+ */
+export const REASON_CYCLE_STATUSES = ["SEEDED", "COMPLETED", "PAUSED", "RECOVERED"] as const
+export type ReasonCycleStatus = (typeof REASON_CYCLE_STATUSES)[number]
+
+export const DECISION_RESPONSES = [
+  "approved",
+  "rejected",
+  "modified",
+  "regenerate",
+  "answer",
+] as const
+export type DecisionResponse = (typeof DECISION_RESPONSES)[number]
 
 /**
  * Values pinned once per reasoning cycle. `referenceDate` is fixed for the
@@ -127,6 +164,102 @@ export interface ReasoningState {
   status: ReasoningStatus
 }
 
+/** v0.6 — resource caps pinned once per cycle (part of cycle identity). */
+export interface ReasoningBudget {
+  maxSteps: number
+  maxSources: number
+  maxQueries: number
+  maxFollowUpRounds: number
+}
+
+/**
+ * v0.6 — the durable control cursor persisted under `reasoning`
+ * (`{ version: 2, state: ReasonCursor }`). One cursor per session
+ * (project + question); steps keep the full session log across cycles so the
+ * CLI export and the returned `ReasoningState` view stay full-artifact.
+ */
+export interface ReasoningCursor {
+  /** SSN_00N, minted once per project+question (changing the question is a new session). */
+  sessionId: string
+  project: string
+  question: string
+  status: ReasoningStatus
+  currentCycleId: string | null
+  /** Globally unique step ids (never restart across cycles). */
+  nextStepNumber: number
+  previousCycleId: string | null
+  referenceDate: string
+  budget: ReasoningBudget
+  /** Signed epistemic+derived state at cycle start (loop-guard baseline). */
+  stateSignature: string
+  /** Governance decisions applied at most once (F8). */
+  consumedDecisionIds: string[]
+  steps: ReasoningStep[]
+  lastStopping: StoppingRecord | null
+}
+
+/** v0.6 — cached derived projection computed at seal; recomputable from steps + log. */
+export interface EpistemicDelta {
+  producedVersionIds: string[]
+  supersededVersionIds: string[]
+  rejectedVersionIds: string[]
+  keysWritten: string[]
+}
+
+/**
+ * v0.6 — one ledger entry in `reasoning-history` (`{ version: 1, cycles }`).
+ * Seeded as a header (status SEEDED) before any epistemic action, completed in
+ * a single atomic write at seal. Sealed entries are immutable.
+ */
+export interface ReasoningCycle {
+  cycleId: string
+  status: ReasonCycleStatus
+  trigger: ReasonCycleTrigger
+  referenceDate: string
+  budget: ReasoningBudget
+  /** Pinned control flag in cycle identity (F12). */
+  humanInTheLoop: boolean
+  startedWithStateSignature: string
+  endedWithStateSignature: string
+  /** A-only epistemic signature; the eligibility baseline for the next cycle (F7). */
+  endedWithEpistemicSignature: string
+  steps: ReasoningStep[]
+  stopping: StoppingRecord | null
+  delta: EpistemicDelta
+  source: "engine" | "legacy-v1"
+}
+
+/** v0.6 — durable governance record in `decisions` (`{ version: 1, records }`, append-only). */
+export interface DecisionRecord {
+  decisionId: string
+  /** The action kind the decision governs (e.g. REQUEST_HUMAN_INPUT). */
+  kind: ReasoningActionKind
+  /** Human-readable subject (typically the request step id or action label). */
+  subject: string
+  /** The proposed action, captured for audit. Never a policy input (F8). */
+  proposedAction?: unknown
+  response: DecisionResponse
+  /** Human-readable detail for `answer` / `rejected` / `modified`. */
+  responseDetail: string | null
+  cycleId: string
+  stepId: string
+  /** Volatile provenance; never signed (deterministic pinning uses the cycle date). */
+  createdAt: string
+}
+
+/**
+ * v0.6 — metadata envelope persisted with `intelligence`, separating the
+ * deterministic report body from audit metadata (F11). `inputSignature` =
+ * sha256(research, versions, referenceDate, budget); on match the report is
+ * reused byte-identically, else recomputed and re-persisted.
+ */
+export interface IntelligenceEnvelope {
+  version: 1
+  inputSignature: string
+  generatedAt: string
+  report: ResearchIntelligenceReport
+}
+
 /** The full derived view the action-selection policy reasons over. */
 export interface ReasoningSituation {
   question: string
@@ -141,7 +274,9 @@ export interface ReasoningSituation {
   activeCount: number
   /**
    * Action keys already attempted at the exact current state signature (the
-   * loop guard's view: repeating these adds nothing).
+   * loop guard's view: repeating these adds nothing). Includes actions blocked
+   * by the approval gate in earlier cycles at the same signature (§18.12
+   * foreclosure) — a rejection is never auto-replayed.
    */
   attemptedKeys: Set<string>
   /** RESEARCH targets attempted earlier in this cycle regardless of signature. */

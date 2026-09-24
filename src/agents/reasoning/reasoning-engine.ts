@@ -12,14 +12,25 @@ import type {
 import type { HypothesisVersion } from "../../core/reasoning/types.js"
 import type {
   CycleContext,
+  DecisionRecord,
   ReasoningAction,
   ReasoningActionKind,
+  ReasoningCursor,
+  ReasoningCycle,
   ReasoningState,
   ReasoningStep,
   StepStatus,
+  StoppingRecord,
 } from "../../core/reasoning/types.js"
-import { CYCLE_PREFIX, STEP_PREFIX } from "../../core/reasoning/types.js"
-import { ReasoningStateVersionSchema } from "../../core/reasoning/schemas.js"
+import {
+  decisionNumber,
+  deriveNextStepNumber,
+  makeCycleId,
+  makeDecisionId,
+  makeSessionId,
+  makeStepId,
+  sessionNumber,
+} from "../../core/reasoning/ids.js"
 import { computeStateSignature } from "../../core/reasoning/state-signature.js"
 import {
   appendVersion,
@@ -27,13 +38,36 @@ import {
   toActiveHypotheses,
 } from "../../core/reasoning/hypothesis-version.js"
 import { verifyPureHypotheses } from "../../core/reasoning/hypothesis-verification.js"
-import { makeId } from "../research/ids.js"
+import { ResearchIntelligenceReportSchema } from "../../core/schemas.js"
 import { ResearchIntelligenceEngine } from "../research/research-intelligence.js"
 import { assessSituation } from "./situation-assessment.js"
 import { planReasoning } from "./action-selection.js"
 import { runFollowUpResearch } from "./follow-up.js"
 import { buildRejection, buildRevision, generateAlternative } from "./hypothesis-lifecycle.js"
 import { getLogger, type Logger } from "../../core/log.js"
+import { isEligibleForNewCycle } from "./cycle-eligibility.js"
+import {
+  appendDecision,
+  computeDelta,
+  computeSessionEpistemicSignature,
+  freshSessionId,
+  loadReasoningCursor,
+  migrateLegacyReasoning,
+  nextCycleSequence,
+  pendingDecisionsOf,
+  readDecisions,
+  readReasoningCycles,
+  rebuildCursorFromLedger,
+  reconcileCursor,
+  seedCycleHeader,
+  sealCycle,
+  writeReasoningCycles,
+} from "./reasoning-repository.js"
+import {
+  buildIntelligenceEnvelope,
+  intelligenceInputSignature,
+  isIntelligenceEnvelope,
+} from "./intelligence-envelope.js"
 
 export interface ReasoningEngineOptions {
   project: string
@@ -41,9 +75,9 @@ export interface ReasoningEngineOptions {
   memory: MemoryStore
   agent: StructuredAgent
   search: SearchProvider
-  /** The v0.4 research bundle the reasoning cycle reasons over. */
-  research: ResearchBundle
-  /** v0.4 active hypotheses, imported as v1 versions on the first cycle. */
+  /** v0.4 research bundle (persisted `research` wins when both are present). */
+  research?: ResearchBundle
+  /** v0.4 active hypotheses, imported as v1 versions on the first session. */
   hypotheses: Hypothesis[]
   referenceDate?: string
   humanInTheLoop?: boolean
@@ -72,20 +106,35 @@ export type ExecuteResult = {
   requiresHuman?: boolean
 }
 
+/** Data-plane view over a control cursor — the `ReasoningState` contract. */
+export function toReasoningState(cursor: ReasoningCursor): ReasoningState {
+  return {
+    project: cursor.project,
+    question: cursor.question,
+    cycleContext: {
+      cycleId: cursor.currentCycleId ?? "CYC_001",
+      referenceDate: cursor.referenceDate,
+      budget: cursor.budget,
+      stateSignature: cursor.stateSignature,
+    },
+    steps: cursor.steps,
+    lastStopping: cursor.lastStopping,
+    status: cursor.status,
+  }
+}
+
 /**
- * v0.5 — Reasoning engine.
+ * v0.6 — Reasoning engine (persistent cycles).
  *
- * A decision–effect loop over the epistemic state:
- *
- *   read epistemic state → compute its signature → assess the situation →
- *   the policy picks the next action or a STOP verdict → approval gate for
- *   hypothesis-touching actions → execute within the action's write-scope →
- *   record the step → repeat.
- *
- * Epistemic writes are physically scoped per action (ScopedMemory): a
- * RESEARCH action can never rewrite hypotheses and a GENERATE action can
- * never touch research. The reference date is pinned per cycle so every
- * derived recompute (intelligence, signatures) replays identically.
+ * The control state is a v2 cursor persisted under `reasoning`, and every
+ * cycle is archived immutably in the `reasoning-history` ledger. A terminal
+ * state may open a NEW cycle only through an explicit eligibility trigger
+ * (epistemic / temporal / budget change, governance change or explicit
+ * request, F7); anything else resumes within the same cycle or returns the
+ * terminal state unchanged (no-op, byte-identical store). Commit points seed
+ * the ledger header BEFORE any epistemic write (at-most-once, F3); effects
+ * committed without a recorded step are reconciled into synthesized steps on
+ * resume (commit-point recovery, F1/F2).
  */
 export class ReasoningEngine {
   private readonly memory: MemoryStore
@@ -107,48 +156,304 @@ export class ReasoningEngine {
     }
   }
 
-  async run(): Promise<ReasoningState> {
-    let reasoning = await this.readReasoning()
-    if (reasoning && (reasoning.status === "STOPPED" || reasoning.status === "NEEDS_HUMAN")) {
-      this.logger.info("reasoning", `no-op resume: state is ${reasoning.status}`)
-      return reasoning
+  async run(opts?: { force?: boolean }): Promise<ReasoningState> {
+    const force = opts?.force === true
+
+    const loaded = await loadReasoningCursor(this.memory)
+    let cursor = loaded.cursor
+    let previousSessionId: string | null = null
+
+    // A session is (project, question)-scoped; a different question is a new
+    // session whose cycles append to the same ledger with fresh ids.
+    if (cursor !== null && cursor.question !== this.options.question) {
+      previousSessionId = cursor.sessionId
+      cursor = null
     }
 
-    const research = await this.memory.get<ResearchBundle>("research")
-    if (!research && !this.options.research) {
+    const cycles = await readReasoningCycles(this.memory)
+
+    let currentResearch = await this.memory.get<ResearchBundle>("research")
+    if (!currentResearch && this.options.research) currentResearch = this.options.research
+    if (!currentResearch) {
       throw new Error(
         'reasoning requires a research bundle (memory key "research" or engine option)',
       )
     }
+    let currentVersions = (await this.memory.get<HypothesisVersion[]>("hypothesis-versions")) ?? []
 
-    // Pin the reference date once: same baseline artifact + same date → the
-    // whole cycle replays byte-identically (Scenario F determinism).
-    const referenceDate =
-      reasoning?.cycleContext?.referenceDate ?? (await this.resolveReferenceDate())
+    // In-memory migration of a v0.5 `{version:1, state}` wrapper.
+    if (
+      cursor === null &&
+      loaded.legacyState !== null &&
+      loaded.legacyState.question === this.options.question
+    ) {
+      cursor = migrateLegacyReasoning(
+        loaded.legacyState,
+        currentVersions,
+        this.options.project,
+        this.budget,
+      )
+    }
 
-    if (!reasoning) {
-      await this.seedFirstCycle(referenceDate)
-      reasoning = {
-        project: this.options.project,
-        question: this.options.question,
-        cycleContext: null,
-        steps: [],
-        lastStopping: null,
-        status: "RUNNING",
+    // A RUNNING/PAUSED cursor whose cycle is already COMPLETED in the ledger
+    // means the seal committed but the control write did not — rebuild.
+    if (
+      cursor !== null &&
+      (cursor.status === "RUNNING" || cursor.status === "PAUSED") &&
+      cycles.some((c) => c.cycleId === cursor?.currentCycleId && c.status === "COMPLETED")
+    ) {
+      const rebuilt = rebuildCursorFromLedger(cursor, cycles, currentVersions)
+      if (rebuilt) cursor = rebuilt
+    }
+
+    // Guarantee a baseline hypothesis version log for the session.
+    if (currentVersions.length === 0) {
+      await this.seedBaseline()
+      currentVersions = (await this.memory.get<HypothesisVersion[]>("hypothesis-versions")) ?? []
+    }
+
+    if (!cursor || cursor.status === "STOPPED" || cursor.status === "PAUSED") {
+      const outcome = await this.maybeOpenNewCycle(
+        cursor,
+        cycles,
+        force,
+        currentResearch,
+        currentVersions,
+        previousSessionId,
+      )
+      if (!outcome.opened) return outcome.state
+      cursor = outcome.cursor
+    }
+
+    return this.continueCycle(cursor)
+  }
+
+  /**
+   * Terminal-state entry: eligibility gate. Returns the terminal `ReasoningState`
+   * unchanged (zero writes) when no trigger fires; otherwise seeds + persists a
+   * fresh cursor for the new cycle.
+   */
+  private async maybeOpenNewCycle(
+    cursor: ReasoningCursor | null,
+    cycles: ReasoningCycle[],
+    force: boolean,
+    research: ResearchBundle,
+    versions: HypothesisVersion[],
+    previousSessionId: string | null,
+  ): Promise<{ opened: false; state: ReasoningState } | { opened: true; cursor: ReasoningCursor }> {
+    const artifact = await this.memory.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const activePtrs = artifact?.hypotheses ?? []
+    const epistemicSignature = computeSessionEpistemicSignature(
+      this.options.question,
+      research,
+      versions,
+      activePtrs,
+    )
+
+    // Cursor lost entirely: fall back to the ledger. A COMPLETED last cycle is
+    // a terminal baseline; a SEEDED/PAUSED row is sealed RECOVERED first.
+    if (cursor === null && previousSessionId === null && cycles.length > 0) {
+      const last = cycles[cycles.length - 1]!
+      if (last.status !== "COMPLETED") {
+        const recovered: ReasoningCycle = {
+          ...last,
+          status: "RECOVERED",
+          endedWithEpistemicSignature: epistemicSignature,
+          endedWithStateSignature: "",
+        }
+        await writeReasoningCycles(this.memory, [...cycles.slice(0, -1), recovered])
+        cycles = await readReasoningCycles(this.memory)
+        cursor = this.cursorFromLedgerView(recovered, versions)
+      } else {
+        cursor = this.cursorFromLedgerView(last, versions)
       }
     }
 
-    let currentResearch = research ?? this.options.research!
-    let currentVersions = await this.readVersions()
+    let prev =
+      cursor === null ? null : (cycles.find((c) => c.cycleId === cursor.currentCycleId) ?? null)
 
-    const cycleContext =
-      reasoning.cycleContext ??
-      (await this.buildCycleContext(currentResearch, currentVersions, referenceDate))
-    reasoning = { ...reasoning, cycleContext }
-    await this.controlWrite(reasoning)
+    // Legacy archive: a migrated state is archived as a `legacy-v1` row before
+    // the first real v0.6 cycle is minted.
+    if (prev === null && cursor !== null && previousSessionId === null) {
+      const archiveId = cycles.length === 0 ? "CYC_001" : makeCycleId(nextCycleSequence(cycles))
+      const archive = {
+        cycleId: archiveId,
+        status: "COMPLETED" as const,
+        trigger: "first" as const,
+        referenceDate: cursor.referenceDate,
+        budget: cursor.budget,
+        humanInTheLoop: this.options.humanInTheLoop === true,
+        startedWithStateSignature: cursor.stateSignature,
+        endedWithStateSignature: cursor.stateSignature,
+        endedWithEpistemicSignature: epistemicSignature,
+        steps: cursor.steps,
+        stopping: cursor.lastStopping,
+        delta: computeDelta(cursor.steps, versions),
+        source: "legacy-v1" as const,
+      }
+      await writeReasoningCycles(this.memory, [...cycles, archive])
+      cycles = await readReasoningCycles(this.memory)
+      prev = archive
+    }
+
+    // Complete a pending seal: cursor STOPPED but ledger row still SEEDED/PAUSED.
+    if (prev !== null && prev.status !== "COMPLETED" && cursor?.status === "STOPPED") {
+      const row = this.buildSealRow(prev, cursor, versions, epistemicSignature)
+      await sealCycle(this.memory, cycles, row)
+      prev = row
+    }
+
+    const referenceDate = await this.resolveReferenceDateFor(prev, cursor)
+
+    const gate = isEligibleForNewCycle(prev, {
+      epistemicSignature,
+      referenceDate,
+      budget: cursor?.budget ?? this.budget,
+      pendingDecisionIds: await this.pendingForEligibility(cursor),
+      force,
+    })
+
+    if (!gate.eligible) return { opened: false, state: toReasoningState(cursor!) }
+
+    const newCycleId = makeCycleId(nextCycleSequence(cycles))
+    const sessionId =
+      previousSessionId !== null
+        ? makeSessionId(sessionNumber(previousSessionId) + 1)
+        : (cursor?.sessionId ?? freshSessionId(null))
+
+    const nextCursor: ReasoningCursor = {
+      sessionId,
+      project: this.options.project,
+      question: this.options.question,
+      status: "RUNNING",
+      currentCycleId: newCycleId,
+      nextStepNumber: deriveNextStepNumber(
+        [
+          ...cycles.flatMap((c) => c.steps.map((s) => s.id)),
+          ...(cursor?.steps.map((s) => s.id) ?? []),
+        ],
+        versions.map((v) => v.createdAfterStep),
+      ),
+      previousCycleId: prev?.cycleId ?? null,
+      referenceDate,
+      budget: this.budget,
+      stateSignature: "",
+      consumedDecisionIds: cursor?.consumedDecisionIds ?? [],
+      steps: [],
+      lastStopping: null,
+    }
+
+    // Commit point (F3): attribute the new cycle to the ledger BEFORE any
+    // epistemic write of this cycle can happen.
+    await seedCycleHeader(this.memory, cycles, {
+      cycleId: newCycleId,
+      status: "SEEDED",
+      trigger: gate.trigger,
+      referenceDate,
+      budget: this.budget,
+      humanInTheLoop: this.options.humanInTheLoop === true,
+      startedWithStateSignature: "",
+      endedWithStateSignature: "",
+      endedWithEpistemicSignature: "",
+      steps: [],
+      stopping: null,
+      delta: {
+        producedVersionIds: [],
+        supersededVersionIds: [],
+        rejectedVersionIds: [],
+        keysWritten: [],
+      },
+      source: "engine",
+    })
+    await this.persistCursor(nextCursor)
+    this.logger.info("reasoning", `new cycle ${newCycleId} (${gate.trigger})`)
+    return { opened: true, cursor: nextCursor }
+  }
+
+  /** Resumes PAUSED / RUNNING cursors within the current cycle. */
+  private async continueCycle(cursor: ReasoningCursor): Promise<ReasoningState> {
+    const currentResearch =
+      (await this.memory.get<ResearchBundle>("research")) ?? this.options.research!
+    const currentVersions =
+      (await this.memory.get<HypothesisVersion[]>("hypothesis-versions")) ?? []
+    const cycles = await readReasoningCycles(this.memory)
+
+    const signatureNow = await this.computeFullSignatureFor(
+      currentResearch,
+      currentVersions,
+      cursor,
+    )
+    const reconciled = reconcileCursor(
+      cursor,
+      cycles,
+      currentVersions,
+      currentResearch,
+      signatureNow,
+    )
+    if (reconciled.healed > 0) {
+      this.logger.warn("reasoning", `reconciled ${reconciled.healed} unrecorded effects`)
+      cursor = reconciled.cursor
+    }
+
+    if (cursor.status === "PAUSED") {
+      const requestStep = this.pendingHumanStep(cursor)
+      const decisions = await readDecisions(this.memory)
+      const decision = requestStep
+        ? pendingDecisionsOf(decisions, cursor).find(
+            (d) => d.stepId === requestStep.id && d.response === "answer",
+          )
+        : undefined
+      if (!decision || !requestStep) {
+        await this.persistCursor(cursor)
+        this.logger.info("reasoning", "no-op resume: waiting on human input")
+        return toReasoningState(cursor)
+      }
+      cursor = {
+        ...cursor,
+        status: "RUNNING",
+        consumedDecisionIds: [...cursor.consumedDecisionIds, decision.decisionId],
+        steps: [
+          ...cursor.steps,
+          {
+            id: makeStepId(cursor.nextStepNumber),
+            cycleContext: {
+              cycleId: cursor.currentCycleId ?? "CYC_001",
+              referenceDate: cursor.referenceDate,
+            },
+            action: requestStep.action,
+            status: "COMPLETED",
+            stateSignatureBefore: cursor.stateSignature,
+            stateSignatureAfter: cursor.stateSignature,
+            performedAt: cursor.referenceDate,
+            writes: ["reasoning"],
+            notes: [`answer: ${decision.responseDetail ?? ""}`],
+          },
+        ],
+        nextStepNumber: cursor.nextStepNumber + 1,
+      }
+      await this.persistCursor(cursor)
+      this.logger.info("reasoning", `resumed ${cursor.currentCycleId} on ${decision.decisionId}`)
+    }
+
+    return this.runLoop(cursor, blockedStepsOf(cursor, cycles))
+  }
+
+  /** The decision–effect loop over the cursor's current cycle. */
+  private async runLoop(
+    cursor: ReasoningCursor,
+    blockedSteps: ReasoningStep[] = [],
+  ): Promise<ReasoningState> {
+    let currentResearch: ResearchBundle =
+      (await this.memory.get<ResearchBundle>("research")) ?? this.options.research!
+    let currentVersions: HypothesisVersion[] =
+      (await this.memory.get<HypothesisVersion[]>("hypothesis-versions")) ?? []
+    const cycleContext = this.cycleContextOf(cursor)
 
     while (true) {
-      if (reasoning.steps.length >= cycleContext.budget.maxSteps) {
+      const cycleSteps = cursor.steps.filter(
+        (s) => s.cycleContext.cycleId === cursor.currentCycleId,
+      )
+      if (cycleSteps.length >= cycleContext.budget.maxSteps) {
         const intelligence = await this.readIntelligence(
           currentResearch,
           currentVersions,
@@ -160,18 +465,20 @@ export class ReasoningEngine {
           intelligence,
           cycleContext,
         )
-        reasoning = this.finishReasoning(
-          reasoning,
-          {
-            kind: "STOP",
-            stoppingKind: "STOP_RESEARCH_LIMIT",
-            reason: `maximum reasoning steps (${cycleContext.budget.maxSteps}) exceeded`,
-          },
-          signatureBefore,
-          cycleContext,
-        )
-        await this.controlWrite(reasoning)
-        return reasoning
+        const action: Extract<ReasoningAction, { kind: "STOP" }> = {
+          kind: "STOP",
+          stoppingKind: "STOP_RESEARCH_LIMIT",
+          reason: `maximum reasoning steps (${cycleContext.budget.maxSteps}) exceeded`,
+        }
+        const stopping: StoppingRecord = {
+          stoppingKind: action.stoppingKind,
+          reason: action.reason,
+          at: cycleContext.referenceDate,
+        }
+        cursor = this.finishCursor(cursor, cycleContext, action, signatureBefore, stopping)
+        await this.seal(cursor, currentVersions)
+        await this.persistCursor(cursor)
+        return toReasoningState(cursor)
       }
 
       const intelligence = await this.readIntelligence(
@@ -190,7 +497,8 @@ export class ReasoningEngine {
         research: currentResearch,
         intelligence,
         versions: currentVersions,
-        cycleSteps: reasoning.steps,
+        cycleSteps,
+        blockedSteps,
         stateSignatureBefore: signatureBefore,
         cycleContext,
         humanInTheLoop: this.options.humanInTheLoop,
@@ -198,21 +506,20 @@ export class ReasoningEngine {
       const plan = planReasoning(situation)
 
       if (plan.terminating) {
-        reasoning = this.finishReasoning(
-          reasoning,
-          plan.action as Extract<ReasoningAction, { kind: "STOP" }>,
-          signatureBefore,
-          cycleContext,
-        )
-        await this.controlWrite(reasoning)
-        this.logger.info(
-          "reasoning",
-          `stopped: ${(plan.action as Extract<ReasoningAction, { kind: "STOP" }>).stoppingKind} — ${plan.terminalReason ?? ""}`,
-        )
-        return reasoning
+        const action = plan.action as Extract<ReasoningAction, { kind: "STOP" }>
+        const stopping: StoppingRecord = {
+          stoppingKind: action.stoppingKind,
+          reason: plan.terminalReason ?? action.reason,
+          at: cycleContext.referenceDate,
+        }
+        cursor = this.finishCursor(cursor, cycleContext, action, signatureBefore, stopping)
+        await this.seal(cursor, currentVersions)
+        await this.persistCursor(cursor)
+        this.logger.info("reasoning", `stopped: ${action.stoppingKind} — ${stopping.reason}`)
+        return toReasoningState(cursor)
       }
 
-      const stepId = makeId(STEP_PREFIX, reasoning.steps.length + 1)
+      const stepId = makeStepId(cursor.nextStepNumber)
 
       if (GATED_KINDS.has(plan.action.kind)) {
         const decision = await this.approvals.review(
@@ -220,19 +527,15 @@ export class ReasoningEngine {
           this.candidateSummary(plan.action),
         )
         if (!decision.approved) {
-          reasoning = this.record(
-            reasoning,
+          cursor = await this.recordGateFailure(
+            cursor,
             stepId,
             cycleContext,
             plan.action,
             signatureBefore,
-            signatureBefore,
-            ["reasoning"],
-            [decision.message ?? "blocked by the approval gate"],
-            "BLOCKED",
+            decision,
           )
-          this.logger.warn("reasoning", `blocked ${plan.action.kind} (${stepId})`)
-          await this.controlWrite(reasoning)
+          await this.persistCursor(cursor)
           continue
         }
       }
@@ -246,15 +549,34 @@ export class ReasoningEngine {
       )
       if (result.research) currentResearch = result.research
       if (result.versions) currentVersions = result.versions
+
+      if (result.requiresHuman) {
+        const stopping: StoppingRecord = {
+          stoppingKind: "STOP_HUMAN_REQUIRED",
+          reason:
+            plan.action.kind === "REQUEST_HUMAN_INPUT"
+              ? plan.action.target
+              : "human input required",
+          at: cycleContext.referenceDate,
+        }
+        cursor = {
+          ...this.bumpNext(cursor),
+          status: "PAUSED",
+          lastStopping: stopping,
+        }
+        await this.markHeaderPaused(cursor)
+        await this.persistCursor(cursor)
+        return toReasoningState(cursor)
+      }
+
       const signatureAfter = this.computeSignature(
         currentResearch,
         currentVersions,
         result.intelligence ?? intelligence,
         cycleContext,
       )
-
-      reasoning = this.record(
-        reasoning,
+      cursor = this.record(
+        cursor,
         stepId,
         cycleContext,
         plan.action,
@@ -264,68 +586,197 @@ export class ReasoningEngine {
         result.notes,
         "COMPLETED",
       )
-      await this.controlWrite(reasoning)
+      cursor = this.bumpNext(cursor)
+      await this.persistCursor(cursor)
       this.logger.info(
         "reasoning",
         `step ${stepId}: ${plan.action.kind} → ${this.targetLabel(plan.action)}`,
       )
-
-      if (result.requiresHuman) {
-        reasoning = {
-          ...reasoning,
-          status: "NEEDS_HUMAN",
-          lastStopping: {
-            stoppingKind: "STOP_HUMAN_REQUIRED",
-            reason:
-              plan.action.kind === "REQUEST_HUMAN_INPUT"
-                ? plan.action.question
-                : "human input required",
-            at: cycleContext.referenceDate,
-          },
-        }
-        await this.controlWrite(reasoning)
-        return reasoning
-      }
     }
   }
 
-  /** Seeds a fresh cycle: v0.4 hypotheses become v1 versions, intelligence recomputed. */
-  private async seedFirstCycle(referenceDate: string): Promise<void> {
-    const existing = await this.readVersions()
-    if (existing.length > 0) return
-    const bundle = (await this.memory.get<ResearchBundle>("research")) ?? this.options.research
-    const seeded = importHypotheses(this.options.hypotheses, "STEP_000")
-    await this.memory.save("hypothesis-versions", seeded)
-    await this.memory.save("hypotheses", this.hypothesesArtifact(seeded, bundle))
-    // Intelligence is only (re)built when it does not yet exist: at a cycle
-    // boundary the epistemic state is unchanged, so the persisted report is
-    // kept byte-for-byte instead of being rewritten with cycle-specific limits.
-    if (bundle) {
-      const existingIntelligence = await this.memory.get<ResearchIntelligenceReport>("intelligence")
-      if (existingIntelligence === null) {
-        await this.memory.save(
-          "intelligence",
-          this.rebuildIntelligence(bundle, seeded, referenceDate),
-        )
-      }
+  private cycleContextOf(cursor: ReasoningCursor): CycleContext {
+    return {
+      cycleId: cursor.currentCycleId ?? "CYC_001",
+      referenceDate: cursor.referenceDate,
+      budget: cursor.budget,
+      stateSignature: cursor.stateSignature,
     }
   }
 
-  private async buildCycleContext(
-    research: ResearchBundle,
+  private async markHeaderPaused(cursor: ReasoningCursor): Promise<void> {
+    const cycles = await readReasoningCycles(this.memory)
+    const index = cycles.findIndex((c) => c.cycleId === cursor.currentCycleId)
+    if (index === -1 || cycles[index]!.status === "COMPLETED") return
+    const next = [...cycles]
+    next[index] = { ...next[index]!, status: "PAUSED" }
+    await writeReasoningCycles(this.memory, next)
+  }
+
+  private buildSealRow(
+    header: ReasoningCycle,
+    cursor: ReasoningCursor,
     versions: HypothesisVersion[],
-    referenceDate: string,
-  ): Promise<CycleContext> {
-    const base: CycleContext = {
-      cycleId: makeId(CYCLE_PREFIX, 1),
-      referenceDate,
-      budget: this.budget,
-      stateSignature: "",
+    endedWithEpistemicSignature: string,
+  ): ReasoningCycle {
+    const steps = cursor.steps.filter((s) => s.cycleContext.cycleId === cursor.currentCycleId)
+    return {
+      cycleId: cursor.currentCycleId ?? "",
+      status: "COMPLETED",
+      trigger: header.trigger,
+      referenceDate: cursor.referenceDate,
+      budget: cursor.budget,
+      humanInTheLoop: header.humanInTheLoop,
+      startedWithStateSignature: steps[0]?.stateSignatureBefore ?? header.startedWithStateSignature,
+      endedWithStateSignature: cursor.stateSignature,
+      endedWithEpistemicSignature,
+      steps,
+      stopping: cursor.lastStopping,
+      delta: computeDelta(steps, versions),
+      source: "engine",
     }
-    const intelligence = await this.readIntelligence(research, versions, base)
-    base.stateSignature = this.computeSignature(research, versions, intelligence, base)
-    return base
   }
+
+  private async seal(cursor: ReasoningCursor, versions: HypothesisVersion[]): Promise<void> {
+    let cycles = await readReasoningCycles(this.memory)
+    let header = cycles.find((c) => c.cycleId === cursor.currentCycleId)
+    if (!header) {
+      // Migrated/mid-flight cycle that never had a ledger header: backfill one
+      // so the row the seal will complete is attributed before it is sealed.
+      const fallback: ReasoningCycle = {
+        cycleId: cursor.currentCycleId ?? "CYC_001",
+        status: "SEEDED",
+        trigger: "first",
+        referenceDate: cursor.referenceDate,
+        budget: cursor.budget,
+        humanInTheLoop: this.options.humanInTheLoop === true,
+        startedWithStateSignature: "",
+        endedWithStateSignature: "",
+        endedWithEpistemicSignature: "",
+        steps: [],
+        stopping: null,
+        delta: {
+          producedVersionIds: [],
+          supersededVersionIds: [],
+          rejectedVersionIds: [],
+          keysWritten: [],
+        },
+        source: "engine",
+      }
+      await seedCycleHeader(this.memory, cycles, fallback)
+      cycles = await readReasoningCycles(this.memory)
+      header = cycles.find((c) => c.cycleId === cursor.currentCycleId) ?? fallback
+    }
+    const research = (await this.memory.get<ResearchBundle>("research")) ?? null
+    const artifact = await this.memory.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const endedWithEpistemic = computeSessionEpistemicSignature(
+      this.options.question,
+      research,
+      versions,
+      artifact?.hypotheses ?? [],
+    )
+    await sealCycle(
+      this.memory,
+      cycles,
+      this.buildSealRow(header, cursor, versions, endedWithEpistemic),
+    )
+  }
+
+  private cursorFromLedgerView(
+    cycle: ReasoningCycle,
+    versions: HypothesisVersion[],
+  ): ReasoningCursor {
+    return {
+      sessionId: freshSessionId(null),
+      project: this.options.project,
+      question: this.options.question,
+      status: "STOPPED",
+      currentCycleId: cycle.cycleId,
+      nextStepNumber: deriveNextStepNumber(
+        [...cycle.steps.map((s) => s.id)],
+        versions.map((v) => v.createdAfterStep),
+      ),
+      previousCycleId: null,
+      referenceDate: cycle.referenceDate,
+      budget: cycle.budget,
+      stateSignature: cycle.endedWithStateSignature,
+      consumedDecisionIds: [],
+      steps: cycle.steps,
+      lastStopping: cycle.stopping,
+    }
+  }
+
+  private async pendingForEligibility(cursor: ReasoningCursor | null): Promise<string[]> {
+    const decisions = await readDecisions(this.memory)
+    const consumed = new Set(cursor?.consumedDecisionIds ?? [])
+    return decisions
+      .filter((d) => d.response !== "rejected" && !consumed.has(d.decisionId))
+      .map((d) => d.decisionId)
+  }
+
+  private async resolveReferenceDateFor(
+    prev: ReasoningCycle | null,
+    cursor: ReasoningCursor | null,
+  ): Promise<string> {
+    if (this.referenceDate) return this.referenceDate
+    if (cursor?.referenceDate) return cursor.referenceDate
+    if (prev?.referenceDate) return prev.referenceDate
+    const explicit = await this.memory.get<{
+      generatedAt?: string
+      report?: { generatedAt?: string }
+    }>("intelligence")
+    return explicit?.report?.generatedAt ?? explicit?.generatedAt ?? new Date().toISOString()
+  }
+
+  /** Records a BLOCKED step (gate rejection) + its DecisionRecord + new id. */
+  private async recordGateFailure(
+    cursor: ReasoningCursor,
+    stepId: string,
+    cycleContext: CycleContext,
+    action: ReasoningAction,
+    signatureBefore: string,
+    decision: { message?: string | null },
+  ): Promise<ReasoningCursor> {
+    const withStep = this.record(
+      cursor,
+      stepId,
+      cycleContext,
+      action,
+      signatureBefore,
+      signatureBefore,
+      ["reasoning"],
+      [decision.message ?? "blocked by the approval gate"],
+      "BLOCKED",
+    )
+    const records = await readDecisions(this.memory)
+    let seq = 0
+    for (const record of records) {
+      const n = decisionNumber(record.decisionId)
+      if (n > seq) seq = n
+    }
+    const record: DecisionRecord = {
+      decisionId: makeDecisionId(seq + 1),
+      kind: action.kind,
+      subject: stepId,
+      proposedAction: this.candidateSummary(action),
+      response: "rejected",
+      responseDetail: decision.message ?? null,
+      cycleId: cycleContext.cycleId,
+      stepId,
+      createdAt: cycleContext.referenceDate,
+    }
+    await appendDecision(this.memory, records, record)
+    this.logger.warn("reasoning", `blocked ${action.kind} (${stepId})`)
+    return this.bumpNext(withStep)
+  }
+
+  private bumpNext(cursor: ReasoningCursor): ReasoningCursor {
+    return { ...cursor, nextStepNumber: cursor.nextStepNumber + 1 }
+  }
+
+  // ------------------------------------------------------------------
+  // Action execution (v0.5 parity).
+  // ------------------------------------------------------------------
 
   private async executeStep(
     action: ReasoningAction,
@@ -347,17 +798,18 @@ export class ReasoningEngine {
         if (!result.performed) {
           return { writes: ["reasoning"], notes: result.notes }
         }
-        const intelligence = this.rebuildIntelligence(
-          result.bundle,
-          versions,
-          cycleContext.referenceDate,
-        )
+        // Commit marker (F1/F2): stamp the emitting step id onto the follow-up
+        // query entry so a crash after this write can be reconciled.
+        const stamped = Object.assign({}, result.bundle, {
+          queries: stampCreatedAfterStep(result.bundle.queries, stepId),
+        })
+        const intelligence = this.rebuildIntelligence(stamped, versions, cycleContext.referenceDate)
         await this.epistemicWrite("RESEARCH", {
-          research: result.bundle,
+          research: stamped,
           intelligence,
         })
         return {
-          research: result.bundle,
+          research: stamped,
           intelligence,
           writes: ["research", "intelligence"],
           notes: result.notes,
@@ -418,7 +870,7 @@ export class ReasoningEngine {
       }
 
       case "REQUEST_HUMAN_INPUT":
-        return { writes: ["reasoning"], notes: [action.question], requiresHuman: true }
+        return { writes: ["reasoning"], notes: [action.target], requiresHuman: true }
 
       case "STOP":
         throw new Error("STOP is terminating and never executes as a step")
@@ -446,13 +898,6 @@ export class ReasoningEngine {
     }
   }
 
-  /**
-   * The published `hypotheses` artifact keeps the v0.4 wrapper shape
-   * `{ hypotheses, verifications }` so the pipeline stages, the trace viewer
-   * and re-seeding all consume a consistent, non-destructive format. The
-   * version log remains the source of truth; verifications are the pure
-   * derivative of the active pointers (never written into the versions).
-   */
   private hypothesesArtifact(
     versions: HypothesisVersion[],
     research: ResearchBundle | undefined,
@@ -512,8 +957,93 @@ export class ReasoningEngine {
     })
   }
 
+  private async computeFullSignatureFor(
+    research: ResearchBundle,
+    versions: HypothesisVersion[],
+    cursor: ReasoningCursor,
+  ): Promise<string> {
+    const context = this.cycleContextOf(cursor)
+    const intelligence = await this.readIntelligence(research, versions, context)
+    return this.computeSignature(research, versions, intelligence, context)
+  }
+
+  private async readIntelligence(
+    research: ResearchBundle,
+    versions: HypothesisVersion[],
+    cycleContext: CycleContext,
+  ): Promise<ResearchIntelligenceReport> {
+    const existing = await this.readIntelligenceArtifact()
+    const inputs = {
+      research,
+      versions,
+      referenceDate: cycleContext.referenceDate,
+      budget: cycleContext.budget,
+    }
+    if (existing !== null) {
+      if (
+        isIntelligenceEnvelope(existing) ||
+        (typeof existing === "object" &&
+          existing !== null &&
+          Object.prototype.hasOwnProperty.call(existing, "version") &&
+          Object.prototype.hasOwnProperty.call(existing, "report"))
+      ) {
+        const envelope = existing as {
+          version: number
+          inputSignature?: string
+          report: ResearchIntelligenceReport
+        }
+        if (
+          envelope.inputSignature === undefined ||
+          envelope.inputSignature === intelligenceInputSignature(inputs)
+        ) {
+          const report = ResearchIntelligenceReportSchema.safeParse(envelope.report)
+          if (report.success) return report.data
+        }
+        // Signature mismatch: stale report, recompute and repersist.
+        const rebuilt = this.rebuildIntelligence(research, versions, cycleContext.referenceDate)
+        await this.persistIntelligence(buildIntelligenceEnvelope(inputs, rebuilt))
+        return rebuilt
+      }
+      // Bare v0.4/v0.5 report: wrap it in the envelope with a fresh signature.
+      const report = ResearchIntelligenceReportSchema.safeParse(existing)
+      if (report.success) {
+        await this.persistIntelligence(buildIntelligenceEnvelope(inputs, report.data))
+        return report.data
+      }
+    }
+    const rebuilt = this.rebuildIntelligence(research, versions, cycleContext.referenceDate)
+    await this.persistIntelligence(buildIntelligenceEnvelope(inputs, rebuilt))
+    return rebuilt
+  }
+
+  private async readIntelligenceArtifact(): Promise<unknown> {
+    const raw = await this.memory.readRaw("intelligence")
+    if (raw === null) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  private async persistIntelligence(envelope: unknown): Promise<void> {
+    await this.memory.save("intelligence", envelope)
+  }
+
+  // ------------------------------------------------------------------
+  // Cursor / control-state bookkeeping.
+  // ------------------------------------------------------------------
+
+  /** Baseline import (v0.4 hypotheses → v1 versions) at STEP_000. */
+  private async seedBaseline(): Promise<void> {
+    const research = (await this.memory.get<ResearchBundle>("research")) ?? this.options.research
+    const seeded = importHypotheses(this.options.hypotheses, "STEP_000")
+    await this.memory.save("hypothesis-versions", seeded)
+    await this.memory.save("hypotheses", this.hypothesesArtifact(seeded, research))
+  }
+
   private record(
-    reasoning: ReasoningState,
+    reasoning: ReasoningCursor,
     id: string,
     cycleContext: CycleContext,
     action: ReasoningAction,
@@ -522,7 +1052,7 @@ export class ReasoningEngine {
     writes: string[],
     notes: string[],
     status: StepStatus,
-  ): ReasoningState {
+  ): ReasoningCursor {
     const step: ReasoningStep = {
       id,
       cycleContext: { cycleId: cycleContext.cycleId, referenceDate: cycleContext.referenceDate },
@@ -534,36 +1064,56 @@ export class ReasoningEngine {
       writes,
       notes,
     }
-    return { ...reasoning, cycleContext, steps: [...reasoning.steps, step] }
+    return { ...reasoning, steps: [...reasoning.steps, step] }
   }
 
-  private finishReasoning(
-    reasoning: ReasoningState,
+  private finishCursor(
+    reasoning: ReasoningCursor,
+    cycleContext: CycleContext,
     action: Extract<ReasoningAction, { kind: "STOP" }>,
     signatureBefore: string,
-    cycleContext: CycleContext,
-  ): ReasoningState {
-    const step: ReasoningStep = {
-      id: makeId(STEP_PREFIX, reasoning.steps.length + 1),
-      cycleContext: { cycleId: cycleContext.cycleId, referenceDate: cycleContext.referenceDate },
-      action,
-      status: "COMPLETED",
-      stateSignatureBefore: signatureBefore,
-      stateSignatureAfter: signatureBefore,
-      performedAt: cycleContext.referenceDate,
-      writes: ["reasoning"],
-      notes: [],
-    }
-    return {
-      ...reasoning,
+    stopping: StoppingRecord,
+  ): ReasoningCursor {
+    const stepId = makeStepId(reasoning.nextStepNumber)
+    const withStep = this.record(
+      reasoning,
+      stepId,
       cycleContext,
-      steps: [...reasoning.steps, step],
-      lastStopping: {
-        stoppingKind: action.stoppingKind,
-        reason: action.reason,
-        at: cycleContext.referenceDate,
-      },
+      action,
+      signatureBefore,
+      signatureBefore,
+      ["reasoning"],
+      [],
+      "COMPLETED",
+    )
+    return {
+      ...withStep,
+      stateSignature: signatureBefore,
+      lastStopping: stopping,
       status: "STOPPED",
+      nextStepNumber: withStep.nextStepNumber + 1,
+    }
+  }
+
+  private pendingHumanStep(cursor: ReasoningCursor): ReasoningStep | null {
+    for (let i = cursor.steps.length - 1; i >= 0; i--) {
+      const step = cursor.steps[i]!
+      if (step.action.kind === "REQUEST_HUMAN_INPUT" && step.status === "COMPLETED") return step
+    }
+    return null
+  }
+
+  private async persistCursor(cursor: ReasoningCursor): Promise<void> {
+    await this.memory.save("reasoning", { version: 2, state: cursor })
+  }
+
+  private async epistemicWrite(
+    kind: ReasoningActionKind,
+    changes: Record<string, unknown>,
+  ): Promise<void> {
+    const scoped = new ScopedMemory(this.memory, readScopeFor(kind), true)
+    for (const [key, value] of Object.entries(changes)) {
+      await scoped.save(key, value)
     }
   }
 
@@ -577,8 +1127,9 @@ export class ReasoningEngine {
       case "REJECT_HYPOTHESIS":
         return action.targetHypothesis
       case "REQUEST_HUMAN_INPUT":
+        return action.target
       case "STOP":
-        return action.kind === "REQUEST_HUMAN_INPUT" ? action.target : action.stoppingKind
+        return action.stoppingKind
     }
   }
 
@@ -594,46 +1145,25 @@ export class ReasoningEngine {
             : { target: (action as { target: string }).target }),
     }
   }
+}
 
-  /** Pins the date to the baseline intelligence artifact when nothing else says otherwise. */
-  private async resolveReferenceDate(): Promise<string> {
-    if (this.referenceDate) return this.referenceDate
-    const existing = await this.memory.get<ResearchIntelligenceReport>("intelligence")
-    return existing?.generatedAt ?? new Date().toISOString()
-  }
+function stampCreatedAfterStep(
+  queries: ResearchBundle["queries"],
+  stepId: string,
+): ResearchBundle["queries"] {
+  const entries = queries.map((q) => Object.assign({}, q))
+  const last = entries[entries.length - 1] as { createdAfterStep?: string } | undefined
+  if (last && !last.createdAfterStep) last.createdAfterStep = stepId
+  return entries as ResearchBundle["queries"]
+}
 
-  private async readVersions(): Promise<HypothesisVersion[]> {
-    return (await this.memory.get<HypothesisVersion[]>("hypothesis-versions")) ?? []
-  }
-
-  private async readIntelligence(
-    research: ResearchBundle,
-    versions: HypothesisVersion[],
-    cycleContext: CycleContext,
-  ): Promise<ResearchIntelligenceReport> {
-    const existing = await this.memory.get<ResearchIntelligenceReport>("intelligence")
-    if (existing) return existing
-    return this.rebuildIntelligence(research, versions, cycleContext.referenceDate)
-  }
-
-  private async readReasoning(): Promise<ReasoningState | null> {
-    const raw = await this.memory.get<unknown>("reasoning")
-    if (raw === null) return null
-    const { state } = ReasoningStateVersionSchema.parse(raw)
-    return state
-  }
-
-  private async controlWrite(state: ReasoningState): Promise<void> {
-    await this.memory.save("reasoning", { version: 1, state })
-  }
-
-  private async epistemicWrite(
-    kind: ReasoningActionKind,
-    changes: Record<string, unknown>,
-  ): Promise<void> {
-    const scoped = new ScopedMemory(this.memory, readScopeFor(kind), true)
-    for (const [key, value] of Object.entries(changes)) {
-      await scoped.save(key, value)
-    }
-  }
+/**
+ * BLOCKED steps from earlier sealed cycles (THE foreclosure source for
+ * §18.12): a rejection recorded in any prior cycle is replayed into the
+ * current cycle's loop guard whenever the state signature is unchanged.
+ */
+function blockedStepsOf(cursor: ReasoningCursor, cycles: ReasoningCycle[]): ReasoningStep[] {
+  return cycles
+    .filter((c) => c.cycleId !== cursor.currentCycleId)
+    .flatMap((c) => c.steps.filter((s) => s.status === "BLOCKED"))
 }

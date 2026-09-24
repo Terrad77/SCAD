@@ -9,6 +9,7 @@ import type {
   GapSignal,
   HypothesisVersion,
   LowQualitySignal,
+  ReasoningAction,
   ReasoningSituation,
   ReasoningStep,
 } from "../../core/reasoning/types.js"
@@ -24,6 +25,8 @@ export interface SituationInput {
   versions: HypothesisVersion[]
   /** Steps of the current cycle (all signatures) to detect repeat attempts. */
   cycleSteps: ReasoningStep[]
+  /** BLOCKED steps from earlier cycles; foreclose the same action at the same signature (§18.12). */
+  blockedSteps?: ReasoningStep[]
   /** Signature of the epistemic state the upcoming decision is made against. */
   stateSignatureBefore: string
   cycleContext: CycleContext
@@ -41,6 +44,17 @@ export function actionKeyOf(actionKind: string, subject: string, id: string): st
 /** The fixed nesting the loop guard uses: object-key collisions cannot occur. */
 export function researchTargetKey(target: { subject: string; id: string }): string {
   return researchKeyOf(target.subject, target.id)
+}
+
+/** Loop-guard key of an action; `null` for non-guarded kinds (STOP). */
+export function attemptedKeyOf(action: ReasoningAction): string | null {
+  if (action.kind === "RESEARCH") return researchTargetKey(action.target)
+  if (action.kind === "STOP") return null
+  if (action.kind === "GENERATE_HYPOTHESIS")
+    return actionKeyOf("GENERATE_HYPOTHESIS", action.targetHypothesis ?? "", "")
+  if (action.kind === "REQUEST_HUMAN_INPUT")
+    return actionKeyOf("REQUEST_HUMAN_INPUT", action.target, "")
+  return actionKeyOf(action.kind, action.targetHypothesis, "")
 }
 
 /**
@@ -66,16 +80,20 @@ export function assessSituation(input: SituationInput): ReasoningSituation {
   const attemptedAtSignature = new Set(
     input.cycleSteps
       .filter((s) => s.stateSignatureBefore === input.stateSignatureBefore)
-      .flatMap((s) => {
-        if (s.action.kind === "RESEARCH") return [researchTargetKey(s.action.target)]
-        if (s.action.kind === "STOP") return []
-        if (s.action.kind === "GENERATE_HYPOTHESIS")
-          return [actionKeyOf("GENERATE_HYPOTHESIS", s.action.targetHypothesis ?? "", "")]
-        if (s.action.kind === "REQUEST_HUMAN_INPUT")
-          return [actionKeyOf("REQUEST_HUMAN_INPUT", s.action.target, "")]
-        return [actionKeyOf(s.action.kind, s.action.targetHypothesis, "")]
-      }),
+      .map((s) => attemptedKeyOf(s.action))
+      .filter((k): k is string => k !== null),
   )
+
+  // Foreclosure (§18.12): a rejected/blocked action from an earlier cycle is
+  // never re-attempted while the state signature is still that of the
+  // rejection. Detected purely from the immutable ledger; lifting it requires
+  // a genuine signature change (new evidence, new date…).
+  for (const step of input.blockedSteps ?? []) {
+    if (step.status !== "BLOCKED") continue
+    if (step.stateSignatureBefore !== input.stateSignatureBefore) continue
+    const key = attemptedKeyOf(step.action)
+    if (key !== null) attemptedAtSignature.add(key)
+  }
 
   const openContradictions: ContradictionSignal[] = input.intelligence.unresolvedContradictions
     .filter((c) => c.severity === "HIGH")

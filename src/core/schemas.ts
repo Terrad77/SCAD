@@ -92,6 +92,7 @@ export const SearchQuerySchema = z.object({
   id: idSchema,
   subquestionId: idSchema,
   query: z.string().min(1),
+  createdAfterStep: z.string().optional(),
 })
 export type SearchQuery = z.infer<typeof SearchQuerySchema>
 

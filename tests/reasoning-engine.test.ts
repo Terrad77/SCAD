@@ -3,14 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { JsonMemoryStore } from "../src/core/memory/json-memory.js"
-import { ReasoningEngine } from "../src/agents/reasoning/reasoning-engine.js"
+import { ReasoningEngine, toReasoningState } from "../src/agents/reasoning/reasoning-engine.js"
 import { NoopSearchProvider } from "../src/providers/search/search-provider.js"
 import { MockLLMProvider } from "../src/providers/llm/mock.js"
 import { StructuredAgent, readPromptFile } from "../src/core/structured-agent.js"
 import { toActiveHypotheses } from "../src/core/reasoning/hypothesis-version.js"
 import { verifyPureHypotheses } from "../src/core/reasoning/hypothesis-verification.js"
 import { ResearchIntelligenceEngine } from "../src/agents/research/research-intelligence.js"
-import { ResearchIntelligenceReportSchema } from "../src/core/schemas.js"
+import { IntelligenceEnvelopeSchema } from "../src/core/reasoning/schemas.js"
 import { makeHypothesis, makeResearchBundle } from "./fixtures.js"
 import type { ResearchBundle } from "../src/core/schemas.js"
 
@@ -104,10 +104,13 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
       limits: { maxSources: 40, maxSubQuestions: 40, maxFollowUpRounds: 5, maxIterations: 100 },
     }).run()
 
-    const saved = await memory.get("intelligence")
-    expect(JSON.stringify(saved)).toBe(JSON.stringify(expected))
-    const parsed = ResearchIntelligenceReportSchema.safeParse(saved)
-    expect(parsed.success).toBe(true)
+    const saved = await memory.get<{ version: number; inputSignature?: string; report: unknown }>(
+      "intelligence",
+    )
+    const envelope = IntelligenceEnvelopeSchema.safeParse(saved)
+    expect(envelope.success).toBe(true)
+    expect(envelope.data).not.toBeNull()
+    expect(JSON.stringify(envelope.data!.report)).toBe(JSON.stringify(expected))
   })
 
   it("is byte-identical across independent runs on identical inputs", async () => {
@@ -163,7 +166,14 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     const memory = new JsonMemoryStore(dirC)
     const keys = (await memory.keys()).sort()
     expect(keys).toEqual(
-      ["hypotheses", "hypothesis-versions", "intelligence", "reasoning", "research"].sort(),
+      [
+        "hypotheses",
+        "hypothesis-versions",
+        "intelligence",
+        "reasoning",
+        "reasoning-history",
+        "research",
+      ].sort(),
     )
 
     const versions = await memory.get("hypothesis-versions")
@@ -179,8 +189,10 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     const first = new JsonMemoryStore(dirA)
     const before = JSON.stringify(await first.get("reasoning"))
     const again = await new ReasoningEngine(await makeEngineOptions(dirA)).run()
-    const stored = (await first.get<{ state: unknown }>("reasoning"))!.state
-    expect(JSON.stringify(again)).toBe(JSON.stringify(stored))
+    const stored = (await first.get<{ state: Parameters<typeof toReasoningState>[0] }>(
+      "reasoning",
+    ))!.state
+    expect(JSON.stringify(again)).toBe(JSON.stringify(toReasoningState(stored)))
     expect(JSON.stringify(await first.get("reasoning"))).toBe(before)
   })
 

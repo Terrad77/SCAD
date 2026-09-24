@@ -196,6 +196,13 @@ export interface SearchQuery {
   id: string
   subquestionId: string
   query: string
+  /**
+   * v0.6 research commit marker: the reasoning step id that produced this
+   * follow-up query. Stamped by the reasoning engine AFTER the query results
+   * are committed so a crashed commit point can reconcile (see
+   * reasoning-repository.reconcileCursor).
+   */
+  createdAfterStep?: string
 }
 
 export interface Evidence {
