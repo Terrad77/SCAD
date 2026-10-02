@@ -12,14 +12,32 @@ import { verifyPureHypotheses } from "../src/core/reasoning/hypothesis-verificat
 import { ResearchIntelligenceEngine } from "../src/agents/research/research-intelligence.js"
 import { IntelligenceEnvelopeSchema } from "../src/core/reasoning/schemas.js"
 import { makeHypothesis, makeResearchBundle } from "./fixtures.js"
-import type { ResearchBundle } from "../src/core/schemas.js"
+import type { Hypothesis, HypothesisVerification, ResearchBundle } from "../src/core/schemas.js"
+import type { HypothesisVersion } from "../src/core/reasoning/types.js"
 
 const QUESTION = "Can humanity become a new species?"
 const REFERENCE_DATE = "2024-01-01T00:00:00.000Z"
 
+interface HypothesesArtifact {
+  hypotheses: Hypothesis[]
+  verifications: HypothesisVerification[]
+}
+
+async function readVersions(memory: JsonMemoryStore): Promise<HypothesisVersion[]> {
+  const versions = await memory.get<HypothesisVersion[]>("hypothesis-versions")
+  if (versions === null) throw new Error("missing hypothesis-versions artifact")
+  return versions
+}
+
+async function readHypotheses(memory: JsonMemoryStore): Promise<HypothesesArtifact> {
+  const artifact = await memory.get<HypothesesArtifact>("hypotheses")
+  if (artifact === null) throw new Error("missing hypotheses artifact")
+  return artifact
+}
+
 async function makeEngineOptions(
   baseDir: string,
-  budget?: Parameters<typeof ReasoningEngine>[0]["budget"],
+  budget?: ConstructorParameters<typeof ReasoningEngine>[0]["budget"],
 ) {
   const memory = new JsonMemoryStore(baseDir)
   await memory.save("research", makeResearchBundle())
@@ -70,11 +88,11 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     const memory = new JsonMemoryStore(dirA)
     const savedState = (await memory.get<{ state: { status: string } }>("reasoning"))!.state
     expect(savedState.status).toBe("STOPPED")
-    const versions = await memory.get("hypothesis-versions")
+    const versions = await readVersions(memory)
     expect(versions).toHaveLength(1)
     expect(versions[0]!.versionId).toBe("HYP_001_V1")
     expect(versions[0]!.reason).toBe("imported from the hypotheses stage")
-    const active = await memory.get("hypotheses")
+    const active = await readHypotheses(memory)
     expect(active.hypotheses).toHaveLength(1)
     expect(active.hypotheses[0]!.id).toBe("HYP_001")
     expect(active.verifications).toHaveLength(1)
@@ -94,7 +112,7 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
     const memory = new JsonMemoryStore(dirA)
 
     const research = (await memory.get<ResearchBundle>("research"))!
-    const versions = await memory.get("hypothesis-versions")
+    const versions = await readVersions(memory)
     const hypothesis = toActiveHypotheses(versions)
     const verifications = verifyPureHypotheses({ hypotheses: hypothesis, research })
     const expected = new ResearchIntelligenceEngine({
@@ -176,11 +194,11 @@ describe("v0.5 reasoning engine (Scenario F determinism)", () => {
       ].sort(),
     )
 
-    const versions = await memory.get("hypothesis-versions")
+    const versions = await readVersions(memory)
     const rejected = versions.filter((v) => v.status === "REJECTED")
     expect(rejected).toHaveLength(1)
     expect(versions).toHaveLength(3)
-    expect((await memory.get("hypotheses")).hypotheses).toHaveLength(1)
+    expect((await readHypotheses(memory)).hypotheses).toHaveLength(1)
     expect(await memory.get("research")).toEqual(makeResearchBundle())
   })
 

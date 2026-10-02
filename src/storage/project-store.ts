@@ -69,6 +69,8 @@ export const OUTPUT_FILES: Record<string, string> = {
   claims: "claims.json",
   hypotheses: "hypotheses.json",
   factCheck: "fact-check.json",
+  /** v0.7: the signed reasoning→production handoff. */
+  reasoningContext: "reasoning-context.json",
   narrative: "narrative.json",
   visual: "shot-list.json",
   selfCheck: "self-check.json",

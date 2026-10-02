@@ -23,6 +23,7 @@ import type {
   ReasoningCursor,
   ReasoningCycle,
   ReasoningState,
+  HypothesisVersion,
 } from "../src/core/reasoning/types.js"
 import { makeHypothesis, makeResearchBundle, makeClaim, makeEvidence } from "./fixtures.js"
 
@@ -110,7 +111,7 @@ const gapBundle = (): ResearchBundle =>
     ],
   })
 
-type EngineOptions = Parameters<typeof ReasoningEngine>[0]
+type EngineOptions = ConstructorParameters<typeof ReasoningEngine>[0]
 
 let tempDirs: string[] = []
 
@@ -157,6 +158,18 @@ async function readCursor(memory: JsonMemoryStore): Promise<ReasoningCursor> {
   const raw = await memory.get<{ version: number; state: ReasoningCursor }>("reasoning")
   if (raw === null) throw new Error("missing reasoning cursor")
   return raw.state
+}
+
+async function readResearch(memory: JsonMemoryStore): Promise<ResearchBundle> {
+  const research = await memory.get<ResearchBundle>("research")
+  if (research === null) throw new Error("missing research artifact")
+  return research
+}
+
+async function readVersions(memory: JsonMemoryStore): Promise<HypothesisVersion[]> {
+  const versions = await memory.get<HypothesisVersion[]>("hypothesis-versions")
+  if (versions === null) throw new Error("missing hypothesis-versions artifact")
+  return versions
 }
 
 async function readCycles(memory: JsonMemoryStore): Promise<ReasoningCycle[]> {
@@ -314,10 +327,10 @@ describe("v0.6 persistent reasoning regression scenarios (§18)", () => {
     const memory = options.memory as JsonMemoryStore
     const rows = await readCycles(memory)
     expect(rows).toHaveLength(3)
-    const versions = await memory.get("hypothesis-versions")
+    const versions = await readVersions(memory)
     expect(versions).toHaveLength(1)
     const after = verifyPureHypotheses({
-      hypotheses: toActiveHypotheses(versions ?? []),
+      hypotheses: toActiveHypotheses(versions),
       research,
     })[0]!
     expect(after).toEqual(baseline)
@@ -350,22 +363,17 @@ describe("v0.6 persistent reasoning regression scenarios (§18)", () => {
 
     await new ReasoningEngine(options).run()
 
-    const research = await memory.get<ResearchBundle>("research")
-    expect(JSON.stringify(research!.evidence)).toBe(evidenceBaseline)
-    expect(JSON.stringify(research!.claims)).toBe(claimsBaseline)
+    const research = await readResearch(memory)
+    expect(JSON.stringify(research.evidence)).toBe(evidenceBaseline)
+    expect(JSON.stringify(research.claims)).toBe(claimsBaseline)
 
-    const versions = (await memory.get("hypothesis-versions")) as Array<{
-      hypothesisId: string
-      statement: string
-      status: string
-      reason: string
-    }>
+    const versions = await readVersions(memory)
     const fabricated = versions.find((v) => v.statement === "MACHINE FABRICATED HYPOTHESIS")
     expect(fabricated).toBeDefined()
     expect(fabricated!.reason).toBe("alternative explanation of HYP_001")
 
     const verdicts = verifyPureHypotheses({
-      hypotheses: toActiveHypotheses(versions as Parameters<typeof toActiveHypotheses>[0]),
+      hypotheses: toActiveHypotheses(versions),
       research,
     })
     expect(verdicts.every((v) => v.status === "UNTESTED")).toBe(true)
@@ -542,14 +550,17 @@ describe("v0.6 persistent reasoning regression scenarios (§18)", () => {
     await memoryB.save("research", research)
     const versionsB = await seedEpistemic(memoryB, research, hypotheses)
     await memoryB.save("intelligence", expectedIntelligence(research, versionsB))
-    await memoryB.save("reasoning", { version: 1, state: legacyReasoningState() })
+    const legacy = legacyReasoningState()
+    await memoryB.save("reasoning", { version: 1, state: legacy })
 
     await new ReasoningEngine(await makeOptions(dirB, { memory: memoryB })).run()
     let rows = await readCycles(memoryB)
     expect(rows.map((r) => r.cycleId)).toEqual(["CYC_001"])
     expect(rows[0]!.source).toBe("legacy-v1")
     expect(rows[0]!.trigger).toBe("first")
-    expect(rows[0]!.stepIds ?? []).toEqual([])
+    // The archive row holds the migrated legacy step log verbatim, never an
+    // engine-produced step.
+    expect(rows[0]!.steps).toEqual(legacy.steps)
 
     await new ReasoningEngine(await makeOptions(dirB, { memory: memoryB })).run({ force: true })
     rows = await readCycles(memoryB)

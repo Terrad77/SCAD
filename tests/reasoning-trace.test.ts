@@ -3,7 +3,11 @@ import {
   buildReasoningTrace,
   renderReasoningTrace,
 } from "../src/agents/reasoning/reasoning-trace.js"
-import type { ReasoningState, ReasoningStep } from "../src/core/reasoning/types.js"
+import type {
+  HypothesisVersion,
+  ReasoningState,
+  ReasoningStep,
+} from "../src/core/reasoning/types.js"
 import { importHypotheses } from "../src/core/reasoning/hypothesis-version.js"
 import { makeHypothesis } from "./fixtures.js"
 
@@ -82,7 +86,7 @@ describe("v0.5 reasoning trace", () => {
         }),
       ],
     })
-    const versions = [
+    const versions: HypothesisVersion[] = [
       importHypotheses([makeHypothesis()], "STEP_000")[0]!,
       {
         ...importHypotheses([makeHypothesis()], "STEP_000")[0]!,

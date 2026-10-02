@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest"
-import { ResearchIntelligenceEngine } from "../src/agents/research/research-intelligence.js"
+import {
+  ResearchIntelligenceEngine,
+  type ResearchIntelligenceOptions,
+} from "../src/agents/research/research-intelligence.js"
 import type { HypothesisVerification } from "../src/core/schemas.js"
 import { ResearchIntelligenceReportSchema } from "../src/core/schemas.js"
 import { makeClaim, makeEvidence, makeResearchBundle } from "./fixtures.js"
@@ -28,11 +31,11 @@ describe("research intelligence engine (v0.4)", () => {
   })
 
   it("is deterministic: identical inputs give identical outputs", () => {
-    const options = {
+    const options: ResearchIntelligenceOptions = {
       research: makeResearchBundle(),
       verifications: [makeVerification()],
       referenceDate: "2026-01-01",
-    } as const
+    }
     const a = new ResearchIntelligenceEngine(options).run()
     const b = new ResearchIntelligenceEngine(options).run()
     expect(a).toEqual(b)
@@ -61,9 +64,14 @@ describe("research intelligence engine (v0.4)", () => {
     const enriched = report.hypotheses[0]!
     expect(enriched.evidenceQuality).toHaveLength(2)
     expect(enriched.contradictions).toEqual([])
-    expect(enriched.uncertainties).toHaveLength(1)
-    expect(enriched.uncertainties[0]!.kind).toBe("CONFLICTING_EVIDENCE")
-    expect(enriched.alternativeExplanations.length).toBeGreaterThanOrEqual(1)
+    const { uncertainties, alternativeExplanations } = enriched
+    if (!uncertainties) throw new Error("expected the verification to carry uncertainties")
+    if (!alternativeExplanations) {
+      throw new Error("expected the verification to carry alternative explanations")
+    }
+    expect(uncertainties).toHaveLength(1)
+    expect(uncertainties[0]!.kind).toBe("CONFLICTING_EVIDENCE")
+    expect(alternativeExplanations.length).toBeGreaterThanOrEqual(1)
   })
 
   it("exposes a contradiction when a verification's evidence touches both sides", () => {
@@ -109,9 +117,11 @@ describe("research intelligence engine (v0.4)", () => {
       referenceDate: "2026-01-01",
     }).run()
     const enriched = report.hypotheses[0]!
-    const ids = enriched.contradictions.map((a) => a.contradictionId)
+    const { contradictions } = enriched
+    if (!contradictions) throw new Error("expected the verification to carry contradictions")
+    const ids = contradictions.map((a) => a.contradictionId)
     expect(ids).toContain("CTR_001")
-    expect(enriched.contradictions[0]!.analysis).toBe("GENUINE_CONTRADICTION")
+    expect(contradictions[0]!.analysis).toBe("GENUINE_CONTRADICTION")
   })
 
   it("collects explicit uncertainty for unsupported and speculative claims", () => {

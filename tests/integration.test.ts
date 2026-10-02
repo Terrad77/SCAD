@@ -253,8 +253,27 @@ describe("full documentary pipeline", () => {
     // Script renders cleanly
     const script = renderScript(result.narrative!)
     expect(script).toContain("Can Humanity Become a New Species?")
-    expect(script).toContain("[FACT]")
     expect(script).toContain("[SPECULATION]")
+
+    // v0.7: production may not over-assert. The canned narrative labels SNT_001
+    // FACT, but the epistemic layer puts CLM_001 in an unresolved contradiction,
+    // so the guard downgrades it — the artifact may never be more assertive than
+    // the reasoning context allows.
+    const context = result.reasoningContext!
+    const sentences = result.narrative!.sections.flatMap((s) => s.sentences)
+    const sent001 = sentences.find((s) => s.id === "SNT_001")!
+    expect(sent001.knowledge).toBe("SCIENTIFIC_HYPOTHESIS")
+    expect(context.claims.find((c) => c.claimId === "CLM_001")!.usable).toBe(false)
+    // A FACT sentence with no claim reference is unverifiable → downgraded too.
+    const sent003 = sentences.find((s) => s.id === "SNT_003")!
+    expect(sent003.claimIds).toHaveLength(0)
+    expect(sent003.knowledge).toBe("INTERPRETATION")
+
+    // The correction is recorded, never silent.
+    const provenance = result.narrative!.production!
+    expect(provenance.normalizations.length).toBeGreaterThanOrEqual(3)
+    expect(provenance.normalizations.every((n) => n.rule === "KNOWLEDGE_DOWNGRADE")).toBe(true)
+    expect(provenance.inputSignature).toBe(context.inputSignature)
 
     // Traceability
     expect(result.traceability.summary.totalShots).toBe(result.visual!.shots.length)

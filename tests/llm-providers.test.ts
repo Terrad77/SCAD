@@ -3,10 +3,16 @@ import { OpenAIProvider } from "../src/providers/llm/openai.js"
 import { AnthropicProvider } from "../src/providers/llm/anthropic.js"
 import type { LLMRequest } from "../src/providers/llm/llm.js"
 
+/** Slot the stub fills in with the request it intercepted. */
+interface CapturedRequest {
+  url?: string
+  init?: RequestInit
+}
+
 interface StubOptions {
   status?: number
   body?: string
-  lastRequest?: { url: string; init: RequestInit }
+  lastRequest?: CapturedRequest
 }
 
 function stubFetch(options: StubOptions = {}) {
@@ -50,7 +56,7 @@ afterEach(() => {
 
 describe("OpenAIProvider", () => {
   it("sends messages to chat/completions and parses the text content", async () => {
-    const lastRequest: StubOptions["lastRequest"] = {}
+    const lastRequest: CapturedRequest = {}
     stubFetch({
       status: 200,
       body: JSON.stringify({
@@ -63,8 +69,10 @@ describe("OpenAIProvider", () => {
       jsonRequest({ system: "System", prompt: "Do it", format: "json" }),
     )
     expect(response.text).toBe('{"ok":true}')
-    expect(lastRequest?.url).toContain("chat/completions")
-    const payload = JSON.parse(String((lastRequest?.init.body as string) ?? "")) as {
+    const { url, init } = lastRequest
+    if (!init) throw new Error("expected the provider to issue a request")
+    expect(url).toContain("chat/completions")
+    const payload = JSON.parse(String(init.body ?? "")) as {
       model: string
       messages: Array<{ role: string; content: string }>
       response_format?: { type: string }
@@ -97,7 +105,7 @@ describe("OpenAIProvider", () => {
 
 describe("AnthropicProvider", () => {
   it("sends messages to /v1/messages and parses the text content", async () => {
-    const lastRequest: StubOptions["lastRequest"] = {}
+    const lastRequest: CapturedRequest = {}
     stubFetch({
       status: 200,
       body: JSON.stringify({ content: [{ type: "text", text: '{"ok":true}' }] }),
@@ -106,12 +114,13 @@ describe("AnthropicProvider", () => {
     const provider = new AnthropicProvider()
     const response = await provider.generate({ system: "S", prompt: "P" })
     expect(response.text).toBe('{"ok":true}')
-    expect(lastRequest?.url).toContain("/v1/messages")
-    expect((lastRequest?.init.headers as Record<string, string>)["x-api-key"]).toBe("ant-test")
-    expect((lastRequest?.init.headers as Record<string, string>)["anthropic-version"]).toBe(
-      "2023-06-01",
-    )
-    const payload = JSON.parse(String((lastRequest?.init.body as string) ?? "")) as {
+    const { url, init } = lastRequest
+    if (!init) throw new Error("expected the provider to issue a request")
+    expect(url).toContain("/v1/messages")
+    const headers = init.headers as Record<string, string>
+    expect(headers["x-api-key"]).toBe("ant-test")
+    expect(headers["anthropic-version"]).toBe("2023-06-01")
+    const payload = JSON.parse(String(init.body ?? "")) as {
       model: string
     }
     expect(payload.model).toBe("claude-sonnet-test")

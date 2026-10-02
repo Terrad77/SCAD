@@ -21,7 +21,7 @@ afterEach(async () => {
 })
 
 describe("HumanApprover", () => {
-  it("auto-approves non-reviewable stages without prompting", async () => {
+  it("auto-approves non-reviewable stages without prompting, and without claiming a human", async () => {
     const answered: string[] = []
     const approver = new HumanApprover(memory, {
       ask: async () => {
@@ -30,16 +30,19 @@ describe("HumanApprover", () => {
       },
     })
     const decision = await approver.review("claims", { claims: [] })
-    expect(decision).toEqual({ approved: true })
+    expect(decision).toEqual({ approved: true, authority: "auto" })
     expect(answered).toHaveLength(0)
   })
 
-  it("stores the explicit approval state for a reviewed stage", async () => {
+  it("marks a prompted approval as human and writes no governance state itself", async () => {
     const approver = new HumanApprover(memory, { ask: async () => "a" })
     const decision = await approver.review("research", makeResearch())
-    expect(decision).toEqual({ approved: true })
-    const approved = await memory.get<Record<string, unknown>>("approved")
-    expect(approved).toHaveProperty("research")
+    expect(decision).toEqual({ approved: true, authority: "human" })
+    // H7: the approver only reports a decision. Binding it to the reviewed
+    // content is the pipeline's job, via the approval ledger — otherwise a
+    // reviewer could approve one artifact and have it read as approval of a
+    // different one.
+    expect(await memory.get("approved")).toBeNull()
   })
 
   it("rejects a stage", async () => {

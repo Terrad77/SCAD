@@ -22,7 +22,9 @@ function completenessFor(bundle = makeResearchBundle()) {
       const src = bundle.sources.find((s) => s.id === e.sourceId)
       const q = computeEvidenceQuality({
         evidence: e,
-        source: src ? { id: src.id, type: src.type, reliability: src.reliability } : undefined,
+        source: src
+          ? { id: src.id, type: src.type, title: src.title, reliability: src.reliability }
+          : undefined,
         referenceDate: "2026-01-01",
       })
       return [e.id, q]

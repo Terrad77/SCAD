@@ -3,6 +3,7 @@ import {
   cmdList,
   cmdDocumentary,
   cmdReason,
+  cmdProduction,
   cmdStage,
   cmdSources,
   cmdEvidence,
@@ -15,7 +16,7 @@ import {
 } from "./cli.js"
 
 const USAGE =
-  "Usage: scad <init|research|claims|hypotheses|factCheck|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|intelligence|reason|documentary|list> [project-name] [quality|completeness|verify|contradictions|uncertainty] [--force] [--interactive] [--provider <mock|brave>]"
+  "Usage: scad <init|research|claims|hypotheses|factCheck|reasoningContext|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|intelligence|reason|production|documentary|list> [project-name] [quality|completeness|verify|contradictions|uncertainty|context|constraints|stale|audit] [--force] [--interactive] [--provider <mock|brave>]"
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -54,6 +55,8 @@ export async function main(argv: string[]): Promise<number> {
       const parsed = parseArgs(rest)
       return cmdReason(parsed.name, parsed.force, parsed.provider, parsed.interactive)
     }
+    case "production":
+      return cmdProduction(rest[0], rest[1])
     default: {
       if (command && STAGE_COMMANDS.has(command)) {
         const parsed = parseArgs(rest)

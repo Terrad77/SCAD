@@ -21,8 +21,9 @@ async function valueImports(file: string): Promise<Array<[string, string]>> {
   const content = await readFile(file, "utf8")
   const found: Array<[string, string]> = []
   for (const match of content.matchAll(importRe)) {
-    if (match[1] !== undefined) continue // type-only import
-    const spec = match[2]
+    const [, typeOnly, spec] = match
+    if (typeOnly !== undefined) continue // type-only import
+    if (spec === undefined) continue // no module specifier captured
     if (spec.startsWith(".")) found.push([spec, resolve(dirname(file), spec)])
   }
   return found

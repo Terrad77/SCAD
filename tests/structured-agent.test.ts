@@ -11,7 +11,7 @@ describe("StructuredAgent", () => {
     const generate = vi.fn<LLMProvider["generate"]>(async () => {
       throw new HttpRequestError(401, "unauthorized", false, "HTTP 401")
     })
-    const provider: LLMProvider = { name: "throwing", generate }
+    const provider: LLMProvider = { generate }
     const agent = new StructuredAgent(provider, loadSystem)
     const error = await agent
       .run("evidence-extraction", EvidenceOutputSchema, {}, { maxRetries: 3, baseDelayMs: 1 })
@@ -28,7 +28,7 @@ describe("StructuredAgent", () => {
     const generate = vi.fn<LLMProvider["generate"]>(async () => {
       throw new HttpRequestError(503, "unavailable", true, "HTTP 503")
     })
-    const provider: LLMProvider = { name: "throwing", generate }
+    const provider: LLMProvider = { generate }
     const agent = new StructuredAgent(provider, loadSystem)
     await expect(
       agent.run("evidence-extraction", EvidenceOutputSchema, {}, { maxRetries: 2, baseDelayMs: 1 }),

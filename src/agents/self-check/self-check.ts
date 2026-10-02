@@ -6,7 +6,10 @@ import type {
   SelfCheckItem,
   SelfCheckOutput,
   Shot,
+  VisualOutput,
 } from "../../core/schemas.js"
+import { auditProduction } from "../../core/production/self-check-rules.js"
+import type { ReasoningContext } from "../../core/production/types.js"
 
 const SUPPORTED_VERDICTS = new Set(["SUPPORTED", "PARTIAL"])
 
@@ -25,6 +28,16 @@ export class SelfCheckEngine {
     shots: Shot[]
     assessments?: Array<{ claimId: string; verdict: string }>
     research?: { gaps?: ResearchGap[]; contradictions?: Contradiction[] }
+    /** v0.7 — enables the independent production audit (optional). */
+    reasoningContext?: ReasoningContext
+    /**
+     * v0.7 — the guarded visual artifact. Required (not just `shots`) so the
+     * audit can re-derive the shot postconditions and re-check the visual
+     * guard's provenance instead of trusting `shots` alone.
+     */
+    visual?: VisualOutput
+    /** v0.7 — memory keys each production stage wrote (scope-compliance check). */
+    productionWrites?: Array<{ artifact: string; keys: string[] }>
   }): SelfCheckOutput {
     const critical: SelfCheckItem[] = []
     const warnings: SelfCheckItem[] = []
@@ -166,6 +179,27 @@ export class SelfCheckEngine {
       }
       if (item.severity === "critical") critical.push(item)
       else warnings.push(item)
+    }
+
+    if (input.reasoningContext !== undefined) {
+      // v0.7: an independent re-check of the reasoning constraints. The report
+      // is a diagnostic, never evidence, and never mutates epistemic state.
+      // `visual` (not just `shots`) is required so the visual guard's recorded
+      // provenance is audited too — otherwise its corrections would be invisible.
+      const visual: VisualOutput = input.visual ?? { shots: input.shots }
+      return {
+        critical,
+        warnings,
+        info,
+        production: auditProduction({
+          context: input.reasoningContext,
+          narrative: input.narrative,
+          visual,
+          narrativeProvenance: input.narrative.production ?? null,
+          visualProvenance: visual.production ?? null,
+          writes: input.productionWrites,
+        }),
+      }
     }
 
     return { critical, warnings, info }

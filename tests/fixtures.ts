@@ -5,10 +5,11 @@ import type {
   ResearchBundle,
   ResearchOutput,
   Shot,
+  Source,
   Hypothesis,
-} from "../../src/core/schemas.js"
+} from "../src/core/schemas.js"
 
-export function makeSource(over: Partial<ResearchOutput["sources"][number]> = {}) {
+export function makeSource(over: Partial<Source> = {}): Source {
   return {
     id: "SRC_001",
     title: "A Reliable Work",
@@ -53,6 +54,12 @@ export function makeHypothesis(over: Partial<Hypothesis> = {}): Hypothesis {
     basis: ["Isolation reduces gene flow."],
     supportingClaims: ["CLM_001"],
     contradictingClaims: [],
+    // The schema gives these `.default([])`, so the resolved type requires them.
+    // Seeding them keeps the fixture a valid `Hypothesis` rather than a
+    // `Partial` that merely happens to look like one.
+    supportingEvidence: [],
+    contradictingEvidence: [],
+    researchGaps: [],
     confidence: 0.5,
     status: "ACTIVE",
     assumptions: ["Isolation persists for millennia."],
@@ -155,7 +162,9 @@ export function makeResearchBundle(over: Partial<ResearchBundle> = {}): Research
         title: "Nature Journal",
         url: "https://nature.com/articles/hominin",
         publisher: "Nature Portfolio",
-        type: "JOURNAL",
+        // A peer-reviewed journal article. `JOURNAL` is not a SourceType: the
+        // enum names the medium (SCIENTIFIC_PAPER), not the periodical.
+        type: "SCIENTIFIC_PAPER",
         reliability: 0.9,
       },
     ],

@@ -1,4 +1,6 @@
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
+import { ScopedMemory } from "../core/memory/scoped-memory.js"
+import { PRODUCTION_WRITE_KEYS } from "../core/production/write-scope.js"
 import { HumanApprover } from "../core/human-approval.js"
 import { runDocumentaryPipeline, renderScript } from "../core/documentary.js"
 import { AutoApprover } from "../core/pipeline.js"
@@ -23,8 +25,11 @@ import { renderResearchReport } from "../agents/research/research-report.js"
 import { TraceService } from "../core/trace.js"
 import { StructuredAgent, readPromptFile } from "../core/structured-agent.js"
 import { ReasoningEngine } from "../agents/reasoning/reasoning-engine.js"
+import { ProductionEngine } from "../agents/production/production-engine.js"
 import { isIntelligenceEnvelope } from "../agents/reasoning/intelligence-envelope.js"
 import type { Hypothesis, ResearchBundle, ResearchIntelligenceReport } from "../core/schemas.js"
+import type { SelfCheckOutput } from "../core/schemas.js"
+import type { ReasoningContext } from "../core/production/types.js"
 import type { HypothesisVerification } from "../core/schemas.js"
 
 const DATA_DIR = process.env.SCAD_DATA_DIR ?? "data/projects"
@@ -129,6 +134,8 @@ const STAGE_ORDER = [
   "claims",
   "hypotheses",
   "factCheck",
+  "epistemicPreparation",
+  "reasoningContext",
   "narrative",
   "visual",
   "selfCheck",
@@ -138,6 +145,10 @@ const STAGE_ALIASES: Record<string, string> = {
   check: "selfCheck",
   "fact-check": "factCheck",
   "self-check": "selfCheck",
+  "epistemic-preparation": "epistemicPreparation",
+  "intelligence-prep": "epistemicPreparation",
+  "reasoning-context": "reasoningContext",
+  context: "reasoningContext",
 }
 
 /** Stage subcommands accepted by `scad <stage> <project>` (aliases included). */
@@ -147,6 +158,10 @@ export const STAGE_COMMANDS = new Set([
   "check",
   "fact-check",
   "self-check",
+  "epistemic-preparation",
+  "intelligence-prep",
+  "reasoning-context",
+  "context",
 ])
 
 async function outputArtifacts(
@@ -165,6 +180,13 @@ async function outputArtifacts(
   }
   if (result.intelligence) {
     extras["intelligence.json"] = JSON.stringify(result.intelligence, null, 2)
+  }
+  // v0.7: the reasoning→production handoff and its manifest.
+  if (result.reasoningContext) {
+    extras["reasoning-context.json"] = JSON.stringify(result.reasoningContext, null, 2)
+  }
+  if (result.production) {
+    extras["production.json"] = JSON.stringify(result.production, null, 2)
   }
   const files = await exportArtifacts(
     dir,
@@ -260,6 +282,7 @@ export async function cmdDocumentary(
   const result = await runDocumentaryPipeline({
     provider: providerFromEnv().provider,
     memoryDir: dir.memoryDir,
+    project: name,
     question: meta?.question || question || name,
     title: meta?.title ?? title,
     force,
@@ -273,7 +296,113 @@ export async function cmdDocumentary(
   log(
     `Self-check: ${sc?.critical.length ?? 0} critical, ${sc?.warnings.length ?? 0} warnings, ${sc?.info.length ?? 0} info`,
   )
+  if (sc?.production) {
+    log(
+      `Production audit (v0.7): ${sc.production.verdict} — ${sc.production.checks.filter((c) => c.status === "FAIL").length} FAIL, ${sc.production.checks.filter((c) => c.status === "WARN").length} WARN, ${sc.production.diagnostics.length} diagnostics (no epistemic mutation)`,
+    )
+  }
+  if (result.staleness?.stale) {
+    const stale = result.staleness.artifacts.filter((a) => a.status === "STALE")
+    log(
+      `Stale production artifacts: ${stale.length ? stale.map((a) => a.artifact).join(", ") : "(missing)"} — regeneration is never automatic; rerun with --force.`,
+    )
+  }
   return outputArtifacts(dir, result)
+}
+
+/**
+ * v0.7 — `scad production <project>`: inspects the reasoning→production handoff.
+ * Read-only: it never rebuilds the context and never regenerates the film.
+ */
+export async function cmdProduction(
+  name: string | undefined,
+  subcommand?: string,
+): Promise<number> {
+  if (!name) {
+    console.error("Usage: scad production <project-name> [context|constraints|stale|audit]")
+    return 1
+  }
+  if (subcommand && !PRODUCTION_SUBCOMMANDS.includes(subcommand)) {
+    console.error(`Unknown production view "${subcommand}".`)
+    return 1
+  }
+  if (!(await projectExists(DATA_DIR, name))) {
+    console.error(`Project "${name}" not found. Run "scad documentary ${name}" first.`)
+    return 1
+  }
+  const dir = projectDir(DATA_DIR, name)
+  const store = new JsonMemoryStore(dir.memoryDir)
+  const context = await store.get<ReasoningContext>("reasoningContext")
+  if (!context) {
+    log(
+      `No reasoning context for "${name}". Run "scad documentary ${name}" (or "scad reasoningContext ${name}") first.`,
+    )
+    return 1
+  }
+  const selfCheck = await store.get<SelfCheckOutput>("selfCheck")
+  // Scoped to the production keys, so this inspection view is physically
+  // read-only: it cannot write an artifact even by accident.
+  const engine = new ProductionEngine(
+    new ScopedMemory(store, new Set(PRODUCTION_WRITE_KEYS), false),
+  )
+  // v0.7 (H2): staleness is ALWAYS recomputed from what is on disk right now.
+  // Reading the manifest's own recorded verdict meant an upstream edit after the
+  // run left the CLI reporting every artifact as CURRENT. The manifest stays
+  // readable for `production.json`, but the verdict here is live.
+  const staleness = await engine.staleness(context)
+
+  if (subcommand === "context" || subcommand === undefined) {
+    const s = context.epistemicSummary
+    log(
+      `Reasoning context for "${name}" (v${context.version}, cycle ${context.reasoningCycleId ?? "none"}):`,
+    )
+    log(
+      `  decision: ${context.decision.actionKind}, ${context.decision.status}, ${context.decision.stoppingKind ?? "unresolved"}, completed ${context.decision.cycleCompleted}`,
+    )
+    log(
+      `  claims: ${s.usableClaimCount}/${s.claimCount} usable, ${s.qualifiedClaimCount} qualified, ${s.unsupportedClaimCount} unsupported`,
+    )
+    log(
+      `  hypotheses: ${s.activeHypothesisCount}/${s.hypothesisCount} active, ${s.contradictionCount} contradictions, ${s.openGapCount} gaps, ${s.uncertaintyCount} uncertainties`,
+    )
+    log(`  completeness: ${s.completenessStatus}, continueResearch: ${s.continueResearch}`)
+    log(`  inputSignature: ${context.inputSignature.slice(0, 16)}…`)
+    log(`  contextSignature: ${context.contextSignature.slice(0, 16)}…`)
+  }
+  if (subcommand === "constraints" || subcommand === undefined) {
+    log(`  production constraints (${context.constraints.length}):`)
+    for (const c of context.constraints) {
+      log(
+        `    [${c.severity}] ${c.kind}${c.subjectIds.length ? ` → ${c.subjectIds.slice(0, 3).join(", ")}` : ""}`,
+      )
+      log(`        ${c.rule}`)
+    }
+  }
+  if (subcommand === "stale" || subcommand === undefined) {
+    log(
+      `  staleness (autoRegenerate: ${staleness.autoRegenerate}): ${staleness.stale ? "STALE" : "CURRENT"}`,
+    )
+    for (const a of staleness.artifacts) {
+      const why =
+        a.reason === null ? "" : ` (${a.reason}${a.dependency ? `: ${a.dependency}` : ""})`
+      log(
+        `    [${a.status}] ${a.artifact}${why}${a.reasoningCycleId ? ` (cycle ${a.reasoningCycleId})` : ""}`,
+      )
+    }
+  }
+  if (subcommand === "audit" || subcommand === undefined) {
+    const report = selfCheck?.production
+    if (!report) {
+      log("  no production audit recorded (run the selfCheck stage).")
+    } else {
+      log(`  production audit: ${report.verdict} (epistemicMutation: ${report.epistemicMutation})`)
+      for (const c of report.checks) log(`    [${c.status}] ${c.id}: ${c.detail}`)
+      for (const d of report.diagnostics) {
+        log(`    ${d.severity} ${d.kind} → ${d.route}: ${d.detail}`)
+      }
+    }
+  }
+  return 0
 }
 
 export async function cmdStage(
@@ -307,6 +436,7 @@ export async function cmdStage(
   const result = await runDocumentaryPipeline({
     provider: providerFromEnv().provider,
     memoryDir: dir.memoryDir,
+    project: name,
     question: meta?.question ?? name,
     title: meta?.title ?? name,
     force: false,
@@ -433,6 +563,9 @@ const INTELLIGENCE_SUBCOMMANDS = [
   "contradictions",
   "uncertainty",
 ]
+
+/** v0.7 — read-only views over the reasoning→production handoff. */
+const PRODUCTION_SUBCOMMANDS = ["context", "constraints", "stale", "audit"]
 
 export async function cmdIntelligence(
   name: string | undefined,

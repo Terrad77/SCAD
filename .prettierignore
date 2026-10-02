@@ -1,2 +1,5 @@
 # Curated document, kept out of Prettier's auto-formatting.
 AGENTS.md
+
+# Design specs: hand-aligned tables and lists are part of the document.
+docs/*.md

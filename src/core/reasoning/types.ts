@@ -253,11 +253,36 @@ export interface DecisionRecord {
  * sha256(research, versions, referenceDate, budget); on match the report is
  * reused byte-identically, else recomputed and re-persisted.
  */
+/**
+ * The resource caps the intelligence computation actually ran under. They are
+ * part of the report content (they drive the stopping criteria), so they are
+ * part of the freshness signature alongside the reasoning budget.
+ */
+export interface IntelligenceLimits {
+  maxSources?: number
+  maxSubQuestions?: number
+  maxFollowUpRounds?: number
+  maxIterations?: number
+}
+
 export interface IntelligenceEnvelope {
   version: 1
   inputSignature: string
   generatedAt: string
   report: ResearchIntelligenceReport
+  /**
+   * v0.7 — the exact inputs the report was derived from. Recording them means a
+   * later validator never has to *guess* which reference date / budget / limits
+   * were in force, so inspection can never silently substitute a run-time
+   * default that differs from the one the report was actually built with.
+   *
+   * Optional: a v0.6 envelope predates this field and is still readable.
+   */
+  inputs?: {
+    referenceDate: string
+    budget: ReasoningBudget
+    limits?: IntelligenceLimits
+  }
 }
 
 /** The full derived view the action-selection policy reasons over. */

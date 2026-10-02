@@ -141,3 +141,73 @@ export {
 export { describeStopping, STOPPING_KIND_LABELS } from "./core/reasoning/stopping.js"
 export * from "./core/reasoning/types.js"
 export * from "./core/reasoning/schemas.js"
+
+// v0.7 — Reasoning-to-Production Pipeline Integration
+export { buildReasoningContext } from "./agents/production/reasoning-context.js"
+export type { BuildReasoningContextInput } from "./agents/production/reasoning-context.js"
+export {
+  ProductionEngine,
+  PRODUCTION_ARTIFACTS,
+  artifactRefs,
+} from "./agents/production/production-engine.js"
+export type { ProductionInputs } from "./agents/production/production-engine.js"
+export { guardNarrative, guardVisual } from "./core/production/guards.js"
+export type { GuardResult } from "./core/production/guards.js"
+export { auditProduction } from "./core/production/self-check-rules.js"
+export type { ProductionAuditInput } from "./core/production/self-check-rules.js"
+export {
+  deriveProductionConstraints,
+  findConstraint,
+  constraintIdOf,
+  claimIsUsableForFact,
+  sortConstraints,
+  CRITICAL_GAP_IMPORTANCE,
+  QUALIFIED_CLAIM_CONFIDENCE,
+} from "./core/production/constraints.js"
+export type { ConstraintInput } from "./core/production/constraints.js"
+export {
+  ASSERTIVENESS_RANK,
+  KNOWLEDGE_BY_RANK,
+  rankOfKnowledge,
+  knowledgeAtLeastAsAssertive,
+  knowledgeCeilingFor,
+  enforceKnowledgeCeiling,
+  PERMITTED_VISUAL_TYPES,
+  isVisualTypePermitted,
+  visualTypeFallback,
+  weakestPosture,
+  strongestPosture,
+} from "./core/production/integrity.js"
+export type { KnowledgeCeiling } from "./core/production/integrity.js"
+export {
+  detectProductionStaleness,
+  artifactStaleness,
+  stalenessOf,
+} from "./core/production/staleness.js"
+export type { StalenessInput, StalenessMarker } from "./core/production/staleness.js"
+export {
+  reasoningContextInputSignature,
+  computeReasoningContextSignature,
+  sha256,
+} from "./core/production/signature.js"
+export {
+  STAGE_WRITE_SCOPE,
+  PRODUCTION_WRITE_KEYS,
+  EPISTEMIC_PIPELINE_KEYS,
+  REASONING_ARTIFACT_KEYS,
+  GOVERNANCE_WRITE_KEYS,
+  writeScopeForStage,
+  protectedKeys,
+} from "./core/production/write-scope.js"
+export {
+  REASONING_CONTEXT_VERSION,
+  PRODUCTION_PROVENANCE_VERSION,
+  PRODUCTION_MANIFEST_VERSION,
+  PRODUCTION_CONSTRAINT_KINDS,
+  PRODUCTION_CHECK_IDS,
+  PRODUCTION_CHECK_STATUSES,
+  PRODUCTION_DIAGNOSTIC_KINDS,
+  PRODUCTION_NORMALIZATION_RULES,
+  CONSTRAINT_SEVERITIES,
+} from "./core/production/types.js"
+export * from "./core/production/schemas.js"

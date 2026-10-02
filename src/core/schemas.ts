@@ -32,6 +32,11 @@ export type {
   UncertaintyKind,
 } from "./types.js"
 export * from "./types.js"
+import {
+  ProductionProvenanceSchema,
+  SelfCheckProductionReportSchema,
+} from "./production/schemas.js"
+export type * from "./production/types.js"
 
 const idSchema = z.string().min(1)
 const unitInterval = z.number().min(0).max(1)
@@ -395,6 +400,8 @@ export const NarrativeSchema = z.object({
   logline: z.string().min(1),
   thesis: z.string().min(1),
   sections: z.array(NarrativeSectionSchema).min(1),
+  /** v0.7 production provenance (constraint satisfaction + guard record). */
+  production: ProductionProvenanceSchema.optional(),
 })
 export type Narrative = z.infer<typeof NarrativeSchema>
 
@@ -415,6 +422,8 @@ export type Shot = z.infer<typeof ShotSchema>
 
 export const VisualOutputSchema = z.object({
   shots: z.array(ShotSchema),
+  /** v0.7 production provenance (constraint satisfaction + guard record). */
+  production: ProductionProvenanceSchema.optional(),
 })
 export type VisualOutput = z.infer<typeof VisualOutputSchema>
 
@@ -430,6 +439,8 @@ export const SelfCheckOutputSchema = z.object({
   critical: z.array(SelfCheckItemSchema),
   warnings: z.array(SelfCheckItemSchema),
   info: z.array(SelfCheckItemSchema),
+  /** v0.7 production audit: independent re-check of the reasoning constraints. */
+  production: SelfCheckProductionReportSchema.optional(),
 })
 export type SelfCheckOutput = z.infer<typeof SelfCheckOutputSchema>
 

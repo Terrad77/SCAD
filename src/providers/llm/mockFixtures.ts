@@ -93,7 +93,9 @@ export const DEMO_STAGE_RESPONSES: Record<string, string> = {
             id: "SNT_002",
             text: "But what if our species could split again — this time, driven by technology rather than ice and isolation?",
             knowledge: "SPECULATION",
-            claimIds: ["CLM_003"],
+            // Authorial speculation: the research fallback may produce only
+            // CLM_001/CLM_002, not the legacy canned claims stage's CLM_003.
+            claimIds: [],
           },
         ],
       },
@@ -141,7 +143,7 @@ export const DEMO_STAGE_RESPONSES: Record<string, string> = {
             id: "SNT_007",
             text: "If heritable changes are introduced and propagate through a population, the result may be a new lineage.",
             knowledge: "SPECULATION",
-            claimIds: ["CLM_003"],
+            claimIds: [],
           },
         ],
       },

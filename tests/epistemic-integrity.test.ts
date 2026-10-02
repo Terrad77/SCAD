@@ -17,10 +17,15 @@ import { analyzeContradictions } from "../src/core/evidence/contradiction-analys
 import type {
   Claim,
   Hypothesis,
+  HypothesisVerification,
   ResearchBundle,
   ResearchIntelligenceReport,
 } from "../src/core/schemas.js"
-import type { HypothesisVersion } from "../src/core/reasoning/types.js"
+import type {
+  HypothesisVersion,
+  ReasoningAction,
+  ReasoningCursor,
+} from "../src/core/reasoning/types.js"
 import { buildIntelligenceEnvelope } from "../src/agents/reasoning/intelligence-envelope.js"
 import { makeHypothesis, makeResearchBundle, makeClaim, makeEvidence } from "./fixtures.js"
 
@@ -85,7 +90,7 @@ const partiallySupported = (): Hypothesis =>
     contradictingClaims: ["CLM_002"],
   })
 
-type EngineOptions = Parameters<typeof ReasoningEngine>[0]
+type EngineOptions = ConstructorParameters<typeof ReasoningEngine>[0]
 
 class ThrowingLLMProvider implements LLMProvider {
   readonly name = "throwing"
@@ -164,6 +169,35 @@ async function getIntelligenceReport(
     return (raw as { report: ResearchIntelligenceReport }).report
   }
   return raw as ResearchIntelligenceReport | null
+}
+
+interface HypothesesArtifact {
+  hypotheses: Hypothesis[]
+  verifications: HypothesisVerification[]
+}
+
+async function readResearch(memory: JsonMemoryStore): Promise<ResearchBundle> {
+  const research = await memory.get<ResearchBundle>("research")
+  if (research === null) throw new Error("missing research artifact")
+  return research
+}
+
+async function readVersions(memory: JsonMemoryStore): Promise<HypothesisVersion[]> {
+  const versions = await memory.get<HypothesisVersion[]>("hypothesis-versions")
+  if (versions === null) throw new Error("missing hypothesis-versions artifact")
+  return versions
+}
+
+async function readHypotheses(memory: JsonMemoryStore): Promise<HypothesesArtifact> {
+  const artifact = await memory.get<HypothesesArtifact>("hypotheses")
+  if (artifact === null) throw new Error("missing hypotheses artifact")
+  return artifact
+}
+
+/** Narrows a step action to the terminal STOP variant, failing loudly otherwise. */
+function stopActionOf(action: ReasoningAction): Extract<ReasoningAction, { kind: "STOP" }> {
+  if (action.kind !== "STOP") throw new Error(`expected a STOP action, got ${action.kind}`)
+  return action
 }
 
 /** Pre-seeds a deterministic epistemic base (research, versions, wrapper, intelligence). */
@@ -245,18 +279,19 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(state.steps.map((s) => s.action.kind)).toEqual(["REJECT_HYPOTHESIS", "STOP"])
     expect(state.steps[0]!.status).toBe("COMPLETED")
     expect(state.steps[0]!.writes).toEqual(["hypotheses", "hypothesis-versions", "intelligence"])
-    expect(state.steps[1]!.action.stoppingKind).toBe("STOP_RESEARCH_LIMIT")
+    expect(stopActionOf(state.steps[1]!.action).stoppingKind).toBe("STOP_RESEARCH_LIMIT")
     expect(state.steps[0]!.performedAt).toBe(REFERENCE_DATE)
 
-    const versions = (await memory.memory.get("hypothesis-versions")) as HypothesisVersion[]
+    const store = memory.memory as JsonMemoryStore
+    const versions = await readVersions(store)
     expect(versions).toHaveLength(2)
     expect(versions[0]!.status).toBe("ACTIVE")
     expect(versions[1]!.status).toBe("REJECTED")
     expect(versions[1]!.reason).toContain("rejected:")
 
     // Intelligence is rebuilt deterministically and reflects the post-action state.
-    const research = await memory.memory.get<ResearchBundle>("research")
-    const intelligence = await getIntelligenceReport(memory.memory as JsonMemoryStore)
+    const research = await readResearch(store)
+    const intelligence = await getIntelligenceReport(store)
     expect(JSON.stringify(intelligence)).toBe(
       JSON.stringify(
         expectedIntelligence(research, versions, { ...REASONING_LIMITS, maxIterations: 1 }),
@@ -291,14 +326,14 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(target?.id).toBe("GAP_001")
     expect(state.steps[0]!.status).toBe("COMPLETED")
     expect([...state.steps[0]!.writes].sort()).toEqual(["intelligence", "research"])
-    expect(state.steps[1]!.action.stoppingKind).toBe("STOP_RESEARCH_LIMIT")
+    expect(stopActionOf(state.steps[1]!.action).stoppingKind).toBe("STOP_RESEARCH_LIMIT")
     expect(state.steps[1]!.writes).toEqual(["reasoning"])
     expect(state.steps.every((s) => s.performedAt === REFERENCE_DATE)).toBe(true)
 
     const store = options.memory as JsonMemoryStore
-    const research = await store.get<ResearchBundle>("research")
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
-    const wrapper = await store.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const research = await readResearch(store)
+    const versions = await readVersions(store)
+    const wrapper = await readHypotheses(store)
 
     // Research grew deterministically (follow-up round) without touching epistemics.
     expect(research.queries.length).toBe(3)
@@ -342,11 +377,11 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(state.lastStopping?.stoppingKind).not.toBe("STOP_RESEARCH_LIMIT")
     expect(calls.length).toBe(1)
 
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
+    const versions = await readVersions(store)
     expect(versions).toHaveLength(1) // no v2 was ever created
     expect(versions[0]!.versionId).toBe("HYP_001_V1")
     expect(versions[0]!.status).toBe("ACTIVE")
-    const wrapper = await store.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const wrapper = await readHypotheses(store)
     expect(wrapper.hypotheses.map((h) => h.status)).toEqual(["ACTIVE"])
   })
 
@@ -377,11 +412,10 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(JSON.stringify(await a)).toBe(JSON.stringify(await b))
     expect((await a)!.generatedAt).toBe(REFERENCE_DATE)
 
-    const versions = (await (optsA.memory as JsonMemoryStore).get(
-      "hypothesis-versions",
-    )) as HypothesisVersion[]
-    const research = await (optsA.memory as JsonMemoryStore).get<ResearchBundle>("research")
-    expect(JSON.stringify(await getIntelligenceReport(optsA.memory as JsonMemoryStore))).toBe(
+    const storeA = optsA.memory as JsonMemoryStore
+    const versions = await readVersions(storeA)
+    const research = await readResearch(storeA)
+    expect(JSON.stringify(await getIntelligenceReport(storeA))).toBe(
       JSON.stringify(expectedIntelligence(research, versions)),
     )
   })
@@ -418,9 +452,9 @@ describe("v0.5 epistemic integrity audit", () => {
 
     // Deterministic fallback revision, no fabrication into research.
     const store = throwing.options.memory as JsonMemoryStore
-    const research = await store.get<ResearchBundle>("research")
+    const research = await readResearch(store)
     expect(research).toEqual(partialBundle())
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
+    const versions = await readVersions(store)
     expect(versions).toHaveLength(2)
     expect(versions[1]!.status).toBe("UNTESTED")
     expect(versions[1]!.statement).toContain("— revised:")
@@ -454,14 +488,14 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(state.steps[state.steps.length - 1]!.action.kind).toBe("STOP")
     expect(state.lastStopping?.stoppingKind).toBe("STOP_CONFIDENT_ENOUGH")
 
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
+    const versions = await readVersions(store)
     expect(versions).toHaveLength(1)
     expect(versions[0]!.status).toBe("ACTIVE")
     expect(versions.every((v) => v.status !== "REJECTED")).toBe(true)
-    const wrapper = await store.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const wrapper = await readHypotheses(store)
     expect(wrapper.hypotheses.map((h) => h.id)).toEqual(["HYP_001"])
     expect(wrapper.hypotheses[0]!.status).toBe("ACTIVE")
-    const research = await store.get<ResearchBundle>("research")
+    const research = await readResearch(store)
     expect(research).toEqual(makeResearchBundle())
   })
 
@@ -472,24 +506,19 @@ describe("v0.5 epistemic integrity audit", () => {
     const optsA = await makeOptions(dirA, { hypotheses: [contradictedHypothesis()] })
     await new ReasoningEngine(optsA).run()
     const storeA = optsA.memory as JsonMemoryStore
-    const reasoningA = await storeA.get<{ state: unknown }>("reasoning")
-    const stateA = reasoningA!.state as {
-      steps: { id: string }[]
-      lastStopping: unknown
-      status: string
-      nextStepNumber: number
-      cycleContext: unknown
-    }
+    const reasoningA = await storeA.get<{ state: ReasoningCursor }>("reasoning")
+    if (reasoningA === null) throw new Error("missing reasoning cursor")
+    const cursorA = reasoningA.state
 
     // dirB: identical epistemic base, reasoning truncated to before the final STOP.
     const storeB = new JsonMemoryStore(dirB)
     for (const key of ["research", "hypotheses", "hypothesis-versions", "intelligence"]) {
       await storeB.save(key, await storeA.get(key))
     }
-    const truncatedSteps = stateA.steps.slice(0, -1)
+    const truncatedSteps = cursorA.steps.slice(0, -1)
     const tail = truncatedSteps[truncatedSteps.length - 1]
-    const truncated = {
-      ...stateA,
+    const truncated: ReasoningCursor = {
+      ...cursorA,
       steps: truncatedSteps,
       nextStepNumber: tail ? Number(tail.id.slice("STEP_".length)) + 1 : 1,
       lastStopping: null,
@@ -500,9 +529,7 @@ describe("v0.5 epistemic integrity audit", () => {
     const optsB = await makeOptions(dirB, { hypotheses: [contradictedHypothesis()] })
     const resumed = await new ReasoningEngine(optsB).run()
 
-    expect(JSON.stringify(resumed)).toBe(
-      JSON.stringify(toReasoningState(stateA as Parameters<typeof toReasoningState>[0])),
-    )
+    expect(JSON.stringify(resumed)).toBe(JSON.stringify(toReasoningState(cursorA)))
     expect(JSON.stringify(await storeB.get("reasoning"))).toBe(JSON.stringify(reasoningA))
     for (const key of ["hypotheses", "hypothesis-versions", "intelligence", "research"]) {
       expect(JSON.stringify(await storeB.get(key))).toBe(JSON.stringify(await storeA.get(key)))
@@ -515,8 +542,8 @@ describe("v0.5 epistemic integrity audit", () => {
     const store = options.memory as JsonMemoryStore
     const state = await new ReasoningEngine(options).run()
 
-    const research = await store.get<ResearchBundle>("research")
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
+    const research = await readResearch(store)
+    const versions = await readVersions(store)
     const hypIds = new Set(versions.map((v) => v.hypothesisId))
     const gapIds = new Set(research.gaps.map((g) => g.id))
     const subIds = new Set(research.plan.subQuestions.map((s) => s.id))
@@ -573,7 +600,7 @@ describe("v0.5 epistemic integrity audit", () => {
         expect(step.action.targetHypothesis).toBe("HYP_002")
       }
     }
-    const versions = (await store.get("hypothesis-versions")) as HypothesisVersion[]
+    const versions = await readVersions(store)
     const h1 = versions.filter((v) => v.hypothesisId === "HYP_001")
     const h2 = versions.filter((v) => v.hypothesisId === "HYP_002")
     expect(h1).toHaveLength(1)
@@ -583,11 +610,11 @@ describe("v0.5 epistemic integrity audit", () => {
     expect(h2[1]!.status).toBe("REJECTED")
 
     // H1 stands on its own with an unchanged independent verdict.
-    const wrapper = await store.get<{ hypotheses: Hypothesis[] }>("hypotheses")
+    const wrapper = await readHypotheses(store)
     expect(wrapper.hypotheses.map((h) => h.id)).toEqual(["HYP_001"])
     const verdict = verifyPureHypotheses({
       hypotheses: wrapper.hypotheses,
-      research: await store.get<ResearchBundle>("research"),
+      research: await readResearch(store),
     })
     expect(verdict[0]!.hypothesisId).toBe("HYP_001")
     expect(verdict[0]!.status).toBe("SUPPORTED")

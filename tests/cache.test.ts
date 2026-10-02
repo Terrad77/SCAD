@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Source } from "../src/core/schemas.js"
 import { FileCache } from "../src/providers/cache/file-cache.js"
 import { FileSearchCache } from "../src/providers/search/cached-search-provider.js"
 import type { SearchResult } from "../src/providers/search/search-provider.js"
@@ -86,13 +85,11 @@ describe("FileSearchCache", () => {
     expect(await cache.get("q")).toBeNull()
   })
 
-  it("round-trips sources through JSON persistence", async () => {
+  it("round-trips search results through JSON persistence", async () => {
     const backing = new FileCache({ dir })
     const cache = new FileSearchCache(backing)
-    const sources: Source[] = [
-      { id: "SRC_001", title: "Study", type: "PAPER", url: "https://study" },
-    ]
-    await cache.set("k", [sources[0]!])
+    const stored: SearchResult[] = [{ id: "1", title: "Study", url: "https://study" }]
+    await cache.set("k", stored)
     const restored = await cache.get("k")
     expect(restored?.[0]?.title).toBe("Study")
   })

@@ -14,7 +14,12 @@ import {
   seedCycleHeader,
   sealCycle,
 } from "../src/agents/reasoning/reasoning-repository.js"
-import type { ReasoningCursor, ReasoningCycle } from "../src/core/reasoning/types.js"
+import type {
+  HypothesisVersion,
+  ReasoningCursor,
+  ReasoningCycle,
+} from "../src/core/reasoning/types.js"
+import { importHypotheses } from "../src/core/reasoning/hypothesis-version.js"
 import { makeHypothesis, makeResearchBundle } from "./fixtures.js"
 
 const QUESTION = "Can humanity become a new species?"
@@ -50,7 +55,7 @@ const gapBundle = () =>
     ],
   })
 
-type EngineOptions = Parameters<typeof ReasoningEngine>[0]
+type EngineOptions = ConstructorParameters<typeof ReasoningEngine>[0]
 
 let tempDirs: string[] = []
 
@@ -85,6 +90,12 @@ async function readCursor(memory: JsonMemoryStore): Promise<ReasoningCursor> {
 
 async function readCycles(memory: JsonMemoryStore): Promise<ReasoningCycle[]> {
   return readReasoningCycles(memory)
+}
+
+async function readVersions(memory: JsonMemoryStore): Promise<HypothesisVersion[]> {
+  const versions = await memory.get<HypothesisVersion[]>("hypothesis-versions")
+  if (versions === null) throw new Error("missing hypothesis-versions artifact")
+  return versions
 }
 
 async function writeCursor(memory: JsonMemoryStore, cursor: ReasoningCursor): Promise<void> {
@@ -155,7 +166,7 @@ describe("v0.6 crash-recovery boundaries (§13, §17.13-17, F1-F4, F15-F16)", ()
     const memoryHistory = new JsonMemoryStore(dirHistory)
     await writeFile(join(dirHistory, "reasoning-history.json"), "[[[[[ broken", "utf8")
     await expect(
-      new ReasoningEngine(await makeOptions(dirHistory, { memoryHistory })).run(),
+      new ReasoningEngine(await makeOptions(dirHistory, { memory: memoryHistory })).run(),
     ).rejects.toThrow(/corrupt/)
 
     const dirDecisions = await tmpDir()
@@ -239,20 +250,14 @@ describe("v0.6 crash-recovery boundaries (§13, §17.13-17, F1-F4, F15-F16)", ()
     expect(healed.notes.join(" ")).toContain("recovered")
     expect(resumed.steps[1]!.action).toMatchObject({ kind: "STOP" })
 
-    const versions =
-      await memory.get<Array<{ status: string; version: number }>>("hypothesis-versions")
+    const versions = await readVersions(memory)
     expect(versions).toHaveLength(2)
     expect(versions[1]!.status).toBe("REJECTED")
     expect(await drainEpistemic(memory)).toBe(baseline)
   })
 
   it("the STEP_000 baseline import is never synthesized into a step (no spurious heal)", () => {
-    const versions = [
-      makeHypothesis({
-        reason: "imported from the hypotheses stage",
-        createdAfterStep: "STEP_000",
-      }),
-    ] as unknown as Parameters<typeof reconcileCursor>[2]
+    const versions = importHypotheses([makeHypothesis()], "STEP_000")
     const cursor: ReasoningCursor = {
       sessionId: "SSN_001",
       project: "humanity-2",

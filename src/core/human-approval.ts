@@ -3,6 +3,11 @@ import type { ApprovalGate, ApprovalDecision } from "./pipeline.js"
 import type { MemoryStore } from "./memory/json-memory.js"
 import { renderScript } from "./documentary.js"
 import type { Narrative, ResearchOutput, HypothesesOutput, SelfCheckOutput } from "./schemas.js"
+import type {
+  ProductionProvenance,
+  ReasoningContext,
+  SelfCheckProductionReport,
+} from "./production/types.js"
 
 /**
  * Interactive human checkpoint. Prompts the operator after each reviewable stage
@@ -15,6 +20,7 @@ export class HumanApprover implements ApprovalGate {
   private static readonly REVIEWABLE_STAGES = new Set([
     "research",
     "hypotheses",
+    "reasoningContext",
     "narrative",
     "selfCheck",
     "reasoning",
@@ -52,7 +58,11 @@ export class HumanApprover implements ApprovalGate {
   }
 
   async review(stage: string, artifact: unknown): Promise<ApprovalDecision> {
-    if (!HumanApprover.REVIEWABLE_STAGES.has(stage)) return { approved: true }
+    if (!HumanApprover.REVIEWABLE_STAGES.has(stage)) {
+      // No checkpoint for this stage, so nobody was asked — recorded as `auto`
+      // rather than silently credited to a human (H7).
+      return { approved: true, authority: "auto" }
+    }
 
     const output = this.config.output ?? ((text: string) => process.stdout.write(text))
     while (true) {
@@ -62,17 +72,15 @@ export class HumanApprover implements ApprovalGate {
       )
       switch (choice) {
         case "a":
-          await this.recordApproval(stage)
           output(`✓ ${stage} approved\n`)
-          return { approved: true }
+          return { approved: true, authority: "human" }
         case "r":
           return { approved: false, message: `Rejected by operator at ${stage} checkpoint` }
         case "m": {
           const replacement = await this.modifyArtifact(stage, artifact, output)
           if (replacement !== undefined) {
-            await this.recordApproval(stage, true)
             output(`✓ ${stage} approved with manual edits\n`)
-            return { approved: true, replacement }
+            return { approved: true, replacement, authority: "human" }
           }
           output(`✗ edit aborted, keeping generated artifact\n`)
           continue
@@ -84,18 +92,6 @@ export class HumanApprover implements ApprovalGate {
           output(`Unknown choice "${choice}". Use a / r / m / g.\n`)
       }
     }
-  }
-
-  /** Persists the operator's approval decision for a stage (uses a safe key on all OSes). */
-  private async recordApproval(stage: string, modified = false): Promise<void> {
-    const key = "approved"
-    const current =
-      (await this.memory.get<Record<string, { approvedAt: string; modified?: boolean }>>(key)) ?? {}
-    current[stage] = {
-      approvedAt: new Date().toISOString(),
-      ...(modified ? { modified: true } : {}),
-    }
-    await this.memory.save(key, current)
   }
 
   private async askOne(prompt: string): Promise<string> {
@@ -180,8 +176,57 @@ export class HumanApprover implements ApprovalGate {
     if (stage === "hypotheses") return this.renderHypotheses(artifact as HypothesesOutput, heading)
     if (stage === "narrative") return this.renderNarrative(artifact as Narrative, heading)
     if (stage === "selfCheck") return this.renderSelfCheck(artifact as SelfCheckOutput, heading)
+    if (stage === "reasoningContext") {
+      return this.renderReasoningContext(artifact as ReasoningContext, heading)
+    }
     if (stage === "reasoning") return this.renderReasoning(artifact, heading)
     return `${heading}${JSON.stringify(artifact, null, 2).slice(0, 1500)}\n`
+  }
+
+  /**
+   * v0.7 — the reasoning→production checkpoint. The operator sees exactly what
+   * the production side is being told to obey BEFORE approving it, so approving
+   * the narrative is an informed decision and not a blind one.
+   */
+  private renderReasoningContext(context: ReasoningContext | undefined, heading: string): string {
+    if (!context) return `${heading}(no reasoning context)\n`
+    const s = context.epistemicSummary
+    const lines = [
+      heading,
+      `Cycle: ${context.reasoningCycleId ?? "none"} (${context.decision.status}, ${
+        context.decision.stoppingKind ?? "unresolved"
+      }${context.decision.humanInTheLoop ? ", human in the loop" : ""})`,
+      `Epistemic: ${s.usableClaimCount}/${s.claimCount} usable claims, ` +
+        `${s.qualifiedClaimCount} qualified, ${s.unsupportedClaimCount} unsupported`,
+      `         ${s.activeHypothesisCount}/${s.hypothesisCount} active hypotheses, ` +
+        `${s.contradictionCount} contradictions, ${s.openGapCount} gaps, ` +
+        `${s.uncertaintyCount} uncertainties`,
+      `         completeness ${s.completenessStatus}, continueResearch ${s.continueResearch}`,
+      "",
+      `Production constraints (${context.constraints.length}):`,
+      ...context.constraints.map(
+        (c) =>
+          `  [${c.severity.toUpperCase()}] ${c.kind}${c.subjectIds.length ? ` (${c.subjectIds.slice(0, 3).join(", ")})` : ""}`,
+      ),
+    ]
+    return `${lines.join("\n")}\n`
+  }
+
+  /** v0.7 — constraint satisfaction and guard corrections at the narrative gate. */
+  private renderProductionProvenance(provenance: ProductionProvenance | undefined): string[] {
+    if (!provenance) return []
+    const lines = [
+      "",
+      `--- production constraints (v0.7, context ${provenance.reasoningCycleId ?? "none"}) ---`,
+      `  satisfied: ${provenance.satisfiedConstraints.length}    violations: ${provenance.violations.length}    guard corrections: ${provenance.normalizations.length}`,
+    ]
+    for (const v of provenance.violations) {
+      lines.push(`  [VIOLATION/${v.severity}] ${v.kind}: ${v.detail}`)
+    }
+    for (const n of provenance.normalizations) {
+      lines.push(`  [CORRECTED] ${n.rule} ${n.subjectId}: ${n.from} → ${n.to} (${n.reason})`)
+    }
+    return lines
   }
 
   private renderReasoning(artifact: unknown, heading: string): string {
@@ -264,6 +309,7 @@ export class HumanApprover implements ApprovalGate {
         `Sections: ${sections.length}`,
         "",
         ...sections.map((s) => `  ## ${s.heading} (${s.sentences.length} sentences)`),
+        ...this.renderProductionProvenance(narrative?.production),
         "",
         `--- script preview ---`,
         preview,
@@ -275,6 +321,7 @@ export class HumanApprover implements ApprovalGate {
     const critical = selfCheck?.critical ?? []
     const warnings = selfCheck?.warnings ?? []
     const info = selfCheck?.info ?? []
+    const report = selfCheck?.production as SelfCheckProductionReport | undefined
     const lines = [
       heading,
       `Critical: ${critical.length}    Warning: ${warnings.length}    Info: ${info.length}`,
@@ -283,6 +330,19 @@ export class HumanApprover implements ApprovalGate {
       ...warnings.map((w) => `  [WARNING] ${w.detail}`),
       ...info.map((i) => `  [INFO] ${i.detail}`),
     ]
+    if (report) {
+      lines.push(
+        "",
+        `--- production audit (v0.7) — verdict ${report.verdict} (no epistemic mutation) ---`,
+        ...report.checks.map((c) => `  [${c.status}] ${c.id}: ${c.detail}`),
+      )
+      if (report.diagnostics.length > 0) {
+        lines.push("", `  Diagnostics (routed, not applied):`)
+        for (const d of report.diagnostics) {
+          lines.push(`    ${d.severity.toUpperCase()} ${d.kind} → ${d.route}: ${d.detail}`)
+        }
+      }
+    }
     return `${lines.join("\n")}\n`
   }
 }

@@ -1,3 +1,5 @@
+import type { ProductionProvenance, SelfCheckProductionReport } from "./production/types.js"
+
 export const SOURCE_TYPES = [
   "BOOK",
   "ARTICLE",
@@ -270,6 +272,8 @@ export interface Narrative {
   logline: string
   thesis: string
   sections: NarrativeSection[]
+  /** v0.7 production provenance: constraints satisfied + guard record. */
+  production?: ProductionProvenance
 }
 
 export interface Shot {
@@ -357,6 +361,8 @@ export interface FactCheckOutput {
 
 export interface VisualOutput {
   shots: Shot[]
+  /** v0.7 production provenance: constraints satisfied + guard record. */
+  production?: ProductionProvenance
 }
 
 export type Contradiction = {
@@ -385,6 +391,8 @@ export interface SelfCheckOutput {
   critical: SelfCheckItem[]
   warnings: SelfCheckItem[]
   info: SelfCheckItem[]
+  /** v0.7 independent production audit. A report, never evidence. */
+  production?: SelfCheckProductionReport
 }
 
 export interface SelfCheckSummary {
