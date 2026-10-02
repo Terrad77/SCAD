@@ -58,7 +58,7 @@ export class HumanApprover implements ApprovalGate {
   }
 
   async review(stage: string, artifact: unknown): Promise<ApprovalDecision> {
-    if (!HumanApprover.REVIEWABLE_STAGES.has(stage)) {
+    if (!HumanApprover.REVIEWABLE_STAGES.has(stage) && !stage.startsWith("revision.")) {
       // No checkpoint for this stage, so nobody was asked — recorded as `auto`
       // rather than silently credited to a human (H7).
       return { approved: true, authority: "auto" }
@@ -70,6 +70,8 @@ export class HumanApprover implements ApprovalGate {
       const choice = await this.askOne(
         `\nCheckpoint [${stage}] — (a)pprove, (r)eject, (m)odify, (g)enerate again > `,
       )
+      if (choice === "" && this.stdinClosed)
+        return { approved: false, message: "Review input closed" }
       switch (choice) {
         case "a":
           output(`✓ ${stage} approved\n`)
@@ -77,7 +79,16 @@ export class HumanApprover implements ApprovalGate {
         case "r":
           return { approved: false, message: `Rejected by operator at ${stage} checkpoint` }
         case "m": {
-          const replacement = await this.modifyArtifact(stage, artifact, output)
+          if (
+            ["revision.reasoningContext", "revision.selfCheck", "revision.final"].includes(stage)
+          ) {
+            output("This checkpoint cannot be hand-edited; reject or regenerate the draft.\n")
+            continue
+          }
+          const editable = stage.startsWith("revision.")
+            ? (artifact as { artifact: unknown }).artifact
+            : artifact
+          const replacement = await this.modifyArtifact(stage, editable, output)
           if (replacement !== undefined) {
             output(`✓ ${stage} approved with manual edits\n`)
             return { approved: true, replacement, authority: "human" }
@@ -86,6 +97,10 @@ export class HumanApprover implements ApprovalGate {
           continue
         }
         case "g":
+          if (stage === "revision.final") {
+            output("Reject this draft to request a new revision.\n")
+            continue
+          }
           output(`↻ regenerating ${stage}\n`)
           return { approved: false, regenerate: true }
         default:
@@ -172,6 +187,33 @@ export class HumanApprover implements ApprovalGate {
 
   private renderSummary(stage: string, artifact: unknown): string {
     const heading = `─=≡ Σ SCAD CHECKPOINT — ${stage.toUpperCase()}\n`
+    if (stage.startsWith("revision.")) {
+      const proposal = artifact as {
+        revisionId: string
+        artifact?: unknown
+        candidate?: { narrative: Narrative; selfCheck: SelfCheckOutput }
+        diff: unknown[]
+      }
+      const kind = stage.slice("revision.".length)
+      let body: string
+      if (kind === "final" && proposal.candidate) {
+        body =
+          this.renderNarrative(proposal.candidate.narrative, "Final script\n") +
+          this.renderSelfCheck(proposal.candidate.selfCheck, "Final audit\n")
+      } else if (kind === "narrative")
+        body = this.renderNarrative(proposal.artifact as Narrative, heading)
+      else if (kind === "selfCheck")
+        body = this.renderSelfCheck(proposal.artifact as SelfCheckOutput, heading)
+      else body = JSON.stringify(proposal.artifact, null, 2) + "\n"
+      return (
+        heading +
+        `Revision: ${proposal.revisionId}\n` +
+        body +
+        "Structural changes (including dependencies):\n" +
+        JSON.stringify(proposal.diff, null, 2) +
+        "\n"
+      )
+    }
     if (stage === "research") return this.renderResearch(artifact as ResearchOutput, heading)
     if (stage === "hypotheses") return this.renderHypotheses(artifact as HypothesesOutput, heading)
     if (stage === "narrative") return this.renderNarrative(artifact as Narrative, heading)

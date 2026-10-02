@@ -1,3 +1,11 @@
+import {
+  assertNoPendingProductionRevision,
+  ProductionRevisionEngine,
+  REVISION_STAGES,
+  revisionDiff,
+  type RevisionStage,
+} from "../core/production/revisions.js"
+import { createRevisionGenerator } from "../agents/production/revision-generator.js"
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
 import { ScopedMemory } from "../core/memory/scoped-memory.js"
 import { PRODUCTION_WRITE_KEYS } from "../core/production/write-scope.js"
@@ -332,6 +340,13 @@ export async function cmdProduction(
   }
   const dir = projectDir(DATA_DIR, name)
   const store = new JsonMemoryStore(dir.memoryDir)
+  if (
+    (await new ProductionRevisionEngine(store).history()).some((r) => r.status === "PUBLISHING")
+  ) {
+    throw new Error(
+      "Publication is incomplete; use production resume before inspecting current artifacts",
+    )
+  }
   const context = await store.get<ReasoningContext>("reasoningContext")
   if (!context) {
     log(
@@ -426,6 +441,7 @@ export async function cmdStage(
   }
   const meta = await readMeta(DATA_DIR, name)
   const dir = projectDir(DATA_DIR, name)
+  await assertNoPendingProductionRevision(new JsonMemoryStore(dir.memoryDir))
 
   const existing = await hasStage(dir.memoryDir, canonical)
   if (existing && !force) {
@@ -649,6 +665,7 @@ export async function cmdReason(
   const meta = await readMeta(DATA_DIR, name)
   const dir = projectDir(DATA_DIR, name)
   const memory = new JsonMemoryStore(dir.memoryDir)
+  await assertNoPendingProductionRevision(memory)
 
   const research = await memory.get<ResearchBundle>("research")
   if (!research) {
@@ -695,5 +712,105 @@ export async function cmdReason(
   const intelligence = await readIntelligenceReport(memory)
   if (intelligence) extras["intelligence.json"] = JSON.stringify(intelligence, null, 2)
   await exportArtifacts(dir, {}, extras)
+  return 0
+}
+
+/** v0.8: plans are read-only; revise requires the exact reviewed plan ID and human checkpoints. */
+export async function cmdProductionRevision(
+  name: string | undefined,
+  action: string,
+  argument?: string,
+  requested?: string,
+): Promise<number> {
+  if (!name || !(await projectExists(DATA_DIR, name))) {
+    console.error("Existing project required for production revisions")
+    return 1
+  }
+  const dir = projectDir(DATA_DIR, name)
+  const memory = new JsonMemoryStore(dir.memoryDir)
+  const engine = new ProductionRevisionEngine(memory)
+  const stage = action === "plan" ? argument : requested
+  if (stage !== undefined && !REVISION_STAGES.includes(stage as RevisionStage)) {
+    console.error(`Unknown revision stage "${stage}"`)
+    return 1
+  }
+  if (action === "plan") {
+    const plan = await engine.plan(stage as RevisionStage | undefined)
+    log(JSON.stringify(plan, null, 2))
+    log(
+      `Apply exactly this plan: scad production ${name} revise ${plan.id}${stage ? ` ${stage}` : ""}`,
+    )
+    return 0
+  }
+  if (action === "history" || action === "diff") {
+    const history = await engine.history()
+    if (action === "history")
+      log(
+        JSON.stringify(
+          history.map((r) => ({ id: r.id, status: r.status, plan: r.plan })),
+          null,
+          2,
+        ),
+      )
+    else {
+      const revision = argument ? history.find((r) => r.id === argument) : history.at(-1)
+      if (!revision) {
+        console.error("Revision not found")
+        return 1
+      }
+      log(JSON.stringify(revisionDiff(revision), null, 2))
+    }
+    return 0
+  }
+  if (action === "reject") {
+    await engine.reject()
+    log("Draft rejected; current production preserved")
+    return 0
+  }
+  if (action === "revise" && argument === undefined) {
+    console.error("A reviewed plan ID is required")
+    return 1
+  }
+  const readOnly = new ScopedMemory(memory, new Set())
+  const generate = createRevisionGenerator(readOnly, providerFromEnv().provider)
+  const approvals = new HumanApprover(memory)
+  let revision
+  if (action === "resume") {
+    const history = await engine.history()
+    if (history.some((r) => r.status === "DRAFT" || r.status === "PUBLISHING"))
+      revision = await engine.resume(generate, approvals)
+    else {
+      const latest = history.at(-1)
+      if (!latest || latest.status !== "COMPLETED") throw new Error("No revision to resume")
+      revision = latest
+    }
+  } else if (action === "revise") {
+    const plan = await engine.plan(stage as RevisionStage | undefined)
+    if (argument !== plan.id) {
+      console.error("Plan ID changed or missing; review production plan first")
+      return 1
+    }
+    revision = await engine.apply(plan, generate, approvals)
+  } else {
+    console.error(`Unknown revision action ${action}`)
+    return 1
+  }
+  log(`Production revision ${revision.id}: ${revision.status}`)
+  // Export only a completed snapshot. Resume can retry exports without generating again.
+  const c = revision.candidate
+  await exportArtifacts(
+    dir,
+    {
+      reasoningContext: c.reasoningContext,
+      narrative: c.narrative,
+      visual: c.visual,
+      selfCheck: c.selfCheck,
+    },
+    {
+      "production.json": JSON.stringify(c.production, null, 2),
+      "script.md": renderScript(c.narrative!),
+      "production-revision.json": JSON.stringify(revision, null, 2),
+    },
+  )
   return 0
 }

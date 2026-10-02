@@ -1,3 +1,4 @@
+import { assertNoPendingProductionRevision } from "./production/revisions.js"
 import { StructuredAgent, readPromptFile } from "./structured-agent.js"
 import { JsonMemoryStore } from "./memory/json-memory.js"
 import { ScopedMemory } from "./memory/scoped-memory.js"
@@ -132,6 +133,7 @@ export async function runDocumentaryPipeline(
   sharedContext: Record<string, unknown> = {},
 ): Promise<DocumentaryResult> {
   const memory = new JsonMemoryStore(options.memoryDir)
+  await assertNoPendingProductionRevision(memory)
   const approvals = options.approvals ?? new AutoApprover()
   const agent = new StructuredAgent(options.provider, readPromptFile)
   const search = options.search ?? new MockSearchProvider()

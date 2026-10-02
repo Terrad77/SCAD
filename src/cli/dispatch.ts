@@ -4,6 +4,7 @@ import {
   cmdDocumentary,
   cmdReason,
   cmdProduction,
+  cmdProductionRevision,
   cmdStage,
   cmdSources,
   cmdEvidence,
@@ -56,6 +57,9 @@ export async function main(argv: string[]): Promise<number> {
       return cmdReason(parsed.name, parsed.force, parsed.provider, parsed.interactive)
     }
     case "production":
+      if (["plan", "revise", "resume", "reject", "history", "diff"].includes(rest[1] ?? "")) {
+        return cmdProductionRevision(rest[0], rest[1]!, rest[2], rest[3])
+      }
       return cmdProduction(rest[0], rest[1])
     default: {
       if (command && STAGE_COMMANDS.has(command)) {

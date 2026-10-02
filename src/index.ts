@@ -211,3 +211,19 @@ export {
   CONSTRAINT_SEVERITIES,
 } from "./core/production/types.js"
 export * from "./core/production/schemas.js"
+
+export {
+  ProductionRevisionEngine,
+  REVISION_STAGES,
+  REVISION_KEY,
+  revisionDiff,
+} from "./core/production/revisions.js"
+export type {
+  ProductionRevision,
+  RevisionPlan,
+  RevisionGenerator,
+  RevisionStage,
+  ProductionSnapshot,
+  RevisionDifference,
+} from "./core/production/revisions.js"
+export { createRevisionGenerator } from "./agents/production/revision-generator.js"

@@ -332,3 +332,63 @@ deterministic fallbacks, the loop runs identically offline and online.
 ## License
 
 MIT
+
+## v0.8 — Governed production revisions
+
+Production staleness remains diagnostic. Revisions require a reviewed plan ID
+and explicit human checkpoints, including a final review of the whole bundle.
+
+```bash
+scad production humanity-species plan
+scad production humanity-species plan narrative
+scad production humanity-species revise PLAN_<full-signature> narrative
+scad production humanity-species history
+scad production humanity-species diff REV_0001
+scad production humanity-species resume
+scad production humanity-species reject
+```
+
+Use the exact command printed by `plan`. An explicit requested stage is included
+in the plan identity. Upstream staleness expands the plan: a narrative revision
+regenerates visual and SelfCheck; a changed reasoning context regenerates the
+entire production suffix. Planning does not call an LLM or write any files.
+The existing reference date and intelligence limits are retained.
+
+`memory/production-revisions.json` is a signed, schema-validated journal using
+the existing atomic JSON store. It contains the previous production snapshot,
+the plan, a candidate, saved stage checkpoints, and completed revision history.
+No epistemic or reasoning stage is run. The revision engine can write only its
+journal and production keys; human approvals use the existing governance ledger,
+with revision-specific stage identities and content/dependency signatures.
+
+Current production files stay unchanged while the candidate is generated and
+reviewed. All affected stages require human approval. Narrative/visual edits are
+schema-validated and guarded again before the exact resulting content is signed.
+Context and audit cannot be manually replaced. The final checkpoint shows the
+script, audit (including FAIL/UNKNOWN), and structural diff. Human acceptance does
+not change an audit verdict or supply evidence.
+
+After final approval the journal enters `PUBLISHING`; canonical production keys
+are replaced one at a time, then the revision becomes `COMPLETED`. This is a
+recoverable publication protocol, **not a multi-file atomic transaction**.
+Production inspection refuses to report a partially published bundle, and legacy
+documentary/stage/reason CLI writers refuse a pending revision. Resume accepts
+only baseline/candidate values during publication, checks the final approval,
+and retries writes idempotently. Before publication, resume checks the frozen
+epistemic/reasoning bytes and current production; external drift stops the run.
+Saved candidates are re-reviewed after a crash without regenerating that stage.
+If exports fail after completion, `production resume` retries the last completed
+snapshot without generation or new approvals.
+
+Reject preserves both the previous production and rejected candidate. A rejected
+draft may be replanned. A publishing revision must be resumed, not rejected.
+Completed revisions retain their original snapshots and decisions; subsequent
+revisions do not overwrite their history. Corrupt journals fail closed.
+
+Limits: use one writer per project; direct filesystem edits and concurrent library
+writers are unsupported. A drift during publication requires restoring the
+frozen inputs and resuming. Plans require an existing parseable ReasoningContext
+and research; this feature does not bootstrap a new project or recover arbitrary
+schema corruption. Structural diff makes no claim of semantic equivalence.
+The audit cannot certify future canonical writes; that scope check may remain
+UNKNOWN. No automatic feedback, research, reasoning, or media generation is added.
