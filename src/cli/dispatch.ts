@@ -5,6 +5,7 @@ import {
   cmdReason,
   cmdProduction,
   cmdProductionRevision,
+  cmdProductionIssues,
   cmdStage,
   cmdSources,
   cmdEvidence,
@@ -57,6 +58,8 @@ export async function main(argv: string[]): Promise<number> {
       return cmdReason(parsed.name, parsed.force, parsed.provider, parsed.interactive)
     }
     case "production":
+      if (rest[1] === "issues")
+        return cmdProductionIssues(rest[0], rest[2], rest[3], rest[4], rest.slice(5).join(" "))
       if (["plan", "revise", "resume", "reject", "history", "diff"].includes(rest[1] ?? "")) {
         return cmdProductionRevision(rest[0], rest[1]!, rest[2], rest[3])
       }

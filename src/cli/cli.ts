@@ -1,10 +1,17 @@
 import {
+  ProductionIssueEngine,
+  ISSUE_ACTIONS,
+  type IssueAction,
+} from "../core/production/issues.js"
+import {
   assertNoPendingProductionRevision,
   ProductionRevisionEngine,
   REVISION_STAGES,
   revisionDiff,
   type RevisionStage,
+  type ProductionRevision,
 } from "../core/production/revisions.js"
+import { contentSignature } from "../core/production/approval.js"
 import { createRevisionGenerator } from "../agents/production/revision-generator.js"
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
 import { ScopedMemory } from "../core/memory/scoped-memory.js"
@@ -798,7 +805,25 @@ export async function cmdProductionRevision(
   }
   log(`Production revision ${revision.id}: ${revision.status}`)
   // Export only a completed snapshot. Resume can retry exports without generating again.
+  await exportCompletedRevision(name, revision)
+  return 0
+}
+
+async function exportCompletedRevision(name: string, revision: ProductionRevision) {
+  if (revision.status !== "COMPLETED") throw new Error("Completed revision required for export")
+  const dir = projectDir(DATA_DIR, name)
   const c = revision.candidate
+  const memory = new JsonMemoryStore(dir.memoryDir)
+  for (const key of [
+    "reasoningContext",
+    "narrative",
+    "visual",
+    "selfCheck",
+    "production",
+  ] as const) {
+    if (contentSignature(await memory.get(key)) !== contentSignature(c[key]))
+      throw new Error("Revision snapshot is no longer canonical; export refused")
+  }
   await exportArtifacts(
     dir,
     {
@@ -813,5 +838,61 @@ export async function cmdProductionRevision(
       "production-revision.json": JSON.stringify(revision, null, 2),
     },
   )
+  return 0
+}
+
+/** Explicit human workflow; read-only listing never synchronizes findings. */
+export async function cmdProductionIssues(
+  name: string | undefined,
+  action = "list",
+  id?: string,
+  choice?: string,
+  note?: string,
+): Promise<number> {
+  if (!name || !(await projectExists(DATA_DIR, name))) throw new Error("Existing project required")
+  const memory = new JsonMemoryStore(projectDir(DATA_DIR, name).memoryDir)
+  const engine = new ProductionIssueEngine(memory)
+  if (action === "list") {
+    log(JSON.stringify(await engine.list(), null, 2))
+    return 0
+  }
+  if (action === "sync") {
+    log(JSON.stringify(await engine.sync(), null, 2))
+    return 0
+  }
+  if (!id) throw new Error("Issue ID required")
+  if (action === "show") {
+    log(JSON.stringify(await engine.inspect(id), null, 2))
+    return 0
+  }
+  if (action === "verify") {
+    log(JSON.stringify(await engine.verify(id), null, 2))
+    return 0
+  }
+  const approvals = new HumanApprover(memory)
+  // Lazy provider construction: defer, dismiss and handoff need no LLM.
+  const generate =
+    choice === "fix" ||
+    (action === "resume" &&
+      (await engine.list()).find((i) => i.id === id)?.operations.at(-1)?.action === "fix")
+      ? createRevisionGenerator(new ScopedMemory(memory, new Set()), providerFromEnv().provider)
+      : undefined
+  let result
+  if (action === "resume") result = await engine.resume(id, approvals, generate)
+  else if (action === "decide" && ISSUE_ACTIONS.includes(choice as IssueAction) && note)
+    result = await engine.decide(id, choice as IssueAction, note, approvals, generate)
+  else
+    throw new Error(
+      "Usage: production <project> issues [list|show ID|sync|verify ID|resume ID|decide ID fix|research|reasoning|defer|dismiss rationale]",
+    )
+  const operation = result.operations.at(-1)
+  if (operation?.action === "fix" && operation.status === "COMPLETED" && operation.revisionId) {
+    const revision = (await new ProductionRevisionEngine(memory).history()).find(
+      (r) => r.id === operation.revisionId,
+    )
+    if (!revision) throw new Error("Linked revision missing")
+    await exportCompletedRevision(name, revision)
+  }
+  log(JSON.stringify(result, null, 2))
   return 0
 }

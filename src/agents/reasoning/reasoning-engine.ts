@@ -315,6 +315,9 @@ export class ReasoningEngine {
 
     if (!gate.eligible) return { opened: false, state: toReasoningState(cursor!) }
 
+    const issueDecisionIds = (await this.pendingForEligibility(cursor)).filter((id) =>
+      id.startsWith("ISSUE_DEC_IOP_"),
+    )
     const newCycleId = makeCycleId(nextCycleSequence(cycles))
     const sessionId =
       previousSessionId !== null
@@ -338,7 +341,9 @@ export class ReasoningEngine {
       referenceDate,
       budget: this.budget,
       stateSignature: "",
-      consumedDecisionIds: cursor?.consumedDecisionIds ?? [],
+      consumedDecisionIds: [
+        ...new Set([...(cursor?.consumedDecisionIds ?? []), ...issueDecisionIds]),
+      ],
       steps: [],
       lastStopping: null,
     }
@@ -349,6 +354,7 @@ export class ReasoningEngine {
       cycleId: newCycleId,
       status: "SEEDED",
       trigger: gate.trigger,
+      ...(issueDecisionIds.length === 0 ? {} : { issueDecisionIds }),
       referenceDate,
       budget: this.budget,
       humanInTheLoop: this.options.humanInTheLoop === true,
@@ -624,6 +630,9 @@ export class ReasoningEngine {
       cycleId: cursor.currentCycleId ?? "",
       status: "COMPLETED",
       trigger: header.trigger,
+      ...(header.issueDecisionIds === undefined
+        ? {}
+        : { issueDecisionIds: header.issueDecisionIds }),
       referenceDate: cursor.referenceDate,
       budget: cursor.budget,
       humanInTheLoop: header.humanInTheLoop,
@@ -708,7 +717,12 @@ export class ReasoningEngine {
 
   private async pendingForEligibility(cursor: ReasoningCursor | null): Promise<string[]> {
     const decisions = await readDecisions(this.memory)
-    const consumed = new Set(cursor?.consumedDecisionIds ?? [])
+    // Ledger acknowledgement survives a crash between cycle header and cursor writes.
+    const cycles = await readReasoningCycles(this.memory)
+    const consumed = new Set([
+      ...(cursor?.consumedDecisionIds ?? []),
+      ...cycles.flatMap((c) => c.issueDecisionIds ?? []),
+    ])
     return decisions
       .filter((d) => d.response !== "rejected" && !consumed.has(d.decisionId))
       .map((d) => d.decisionId)

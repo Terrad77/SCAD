@@ -428,3 +428,56 @@ a metadata edit can stale visual/SelfCheck and requires review in a production
 revision. v0.8 snapshots retain the fields and reference reports through crash/resume.
 No new memory store, LLM judge, embeddings, research feedback, belief updates or
 autonomous regeneration are introduced.
+
+## v0.10 — governed SelfCheck issues
+
+Production diagnostics can be captured in a signed `production-issues` journal.
+Synchronization is explicit and requires CURRENT dependencies and a stored audit
+that matches independent content checks. Historical scope observations cannot be
+reconstructed from snapshots: read-time scope stays UNKNOWN, and historical scope
+violations are retained. Only `selfCheck.production` diagnostics are tracked here;
+legacy SelfCheck lists and semantic UNKNOWNs do not become invented findings.
+
+```text
+scad production <project> issues list
+scad production <project> issues sync
+scad production <project> issues show ISS_<hash>
+scad production <project> issues decide ISS_<hash> fix "Repair the broken reference"
+scad production <project> issues decide ISS_<hash> research "Check the source"
+scad production <project> issues decide ISS_<hash> reasoning "Reconsider the hypothesis"
+scad production <project> issues decide ISS_<hash> defer "Await specialist review"
+scad production <project> issues decide ISS_<hash> dismiss "Accepted diagnostic limitation"
+scad production <project> issues resume ISS_<hash>
+scad production <project> issues verify ISS_<hash>
+```
+
+List/show are read-only and retain history, subject IDs, affected sentence/shot IDs,
+and upstream references. Show reports snapshot freshness. Decisions need a rationale
+and explicit human approval; automatic or edited approval cannot authorize them.
+Authorization is saved before execution. Resume continues that exact operation;
+an already committed request is not appended twice, even if production has since
+changed. A rejected revision can be resumed to record cancellation of the issue
+operation and reopen the issue, without claiming success.
+
+Fix reuses governed v0.8 narrative/visual/SelfCheck revisions and exports the
+completed snapshot. It starts at narrative in this increment. Research/reasoning
+requests require a sealed, stopped reasoning cycle and append only to the existing
+`decisions` ledger. Invoke `scad reason <project>` explicitly to start reasoning.
+Its cycle header acknowledges issue governance requests once; acknowledgement
+survives a crash before the cursor write. The diagnostic and requested action remain
+audit metadata and never force policy selection, answer a paused input checkpoint,
+create evidence or increase confidence. A handoff does not promise that requested
+research will be performed.
+
+Fix/handoff leaves AWAITING_VERIFICATION. Explicit verification closes an issue
+only on a different CURRENT snapshot, with no matching kind/subject finding and
+PASS for its relevant independent check. UNKNOWN cannot close it. Dismiss/defer
+are dispositions, not proof of resolution. Historical resolved snapshots remain
+historical; later findings get new IDs. No automatic synchronization, regeneration,
+feedback loop, second decision ledger, UI or media generation is introduced.
+
+Journals assume one writer per project. Each file write is atomic; a revision is
+not a multi-file transaction. Signatures detect drift rather than malicious forgery.
+The increment also preserves validated raw revision snapshots/journals, preventing
+schema reconstruction from changing field order covered by existing dependency
+signatures. Generated replacement artifacts are still validated and guarded.

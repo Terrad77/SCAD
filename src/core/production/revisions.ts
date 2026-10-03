@@ -47,6 +47,7 @@ const PlanSchema = z.object({
   reasons: z.array(z.string()),
   autoRegenerate: z.literal(false),
 })
+export const RevisionPlanSchema = PlanSchema
 export type RevisionPlan = z.infer<typeof PlanSchema>
 const RevisionSchema = z.object({
   id: z.string(),
@@ -92,7 +93,8 @@ export class ProductionRevisionEngine {
     if (stored === null) return { version: 1, revisions: [] }
     if (contentSignature(stored.body) !== stored.signature)
       throw new Error("Corrupt production revision journal")
-    return JournalSchema.parse(stored.body)
+    JournalSchema.parse(stored.body)
+    return stored.body as Journal
   }
 
   private async save(journal: Journal): Promise<void> {
@@ -113,15 +115,18 @@ export class ProductionRevisionEngine {
   }
 
   private async snapshot(): Promise<ProductionSnapshot> {
-    const context = ReasoningContextSchema.parse(await this.read("reasoningContext"))
+    const context = await this.read("reasoningContext")
+    ReasoningContextSchema.parse(context)
     // Corrupt context can be explicitly replaced, but is never consumed for generation.
-    return SnapshotSchema.parse({
+    const snapshot = {
       reasoningContext: context,
       narrative: await this.read("narrative"),
       visual: await this.read("visual"),
       selfCheck: await this.read("selfCheck"),
       production: await this.read("production"),
-    })
+    }
+    SnapshotSchema.parse(snapshot)
+    return snapshot as ProductionSnapshot
   }
 
   private async liveContext(persisted: ReasoningContext): Promise<ReasoningContext> {
@@ -366,7 +371,8 @@ export class ProductionRevisionEngine {
   private setArtifact(candidate: ProductionSnapshot, stage: RevisionStage, value: unknown): void {
     switch (stage) {
       case "reasoningContext": {
-        const context = ReasoningContextSchema.parse(value)
+        ReasoningContextSchema.parse(value)
+        const context = value as ProductionSnapshot["reasoningContext"]
         if (!verifyContextIntegrity(context).valid) throw new Error("Invalid context signature")
         candidate.reasoningContext = context
         break

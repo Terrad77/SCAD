@@ -212,6 +212,8 @@ export interface EpistemicDelta {
  * a single atomic write at seal. Sealed entries are immutable.
  */
 export interface ReasoningCycle {
+  /** v0.10: issue requests acknowledged by this explicitly started cycle. */
+  issueDecisionIds?: string[]
   cycleId: string
   status: ReasonCycleStatus
   trigger: ReasonCycleTrigger

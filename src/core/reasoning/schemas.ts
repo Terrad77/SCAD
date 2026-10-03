@@ -156,6 +156,7 @@ export const ReasoningCycleSchema = z.object({
   cycleId: z.string().min(1),
   status: z.enum(REASON_CYCLE_STATUSES),
   trigger: z.enum(REASON_CYCLE_TRIGGERS),
+  issueDecisionIds: z.array(z.string().min(1)).optional(),
   referenceDate: z.string().min(1),
   budget: ReasoningBudgetSchema,
   humanInTheLoop: z.boolean(),

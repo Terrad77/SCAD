@@ -58,7 +58,11 @@ export class HumanApprover implements ApprovalGate {
   }
 
   async review(stage: string, artifact: unknown): Promise<ApprovalDecision> {
-    if (!HumanApprover.REVIEWABLE_STAGES.has(stage) && !stage.startsWith("revision.")) {
+    if (
+      !HumanApprover.REVIEWABLE_STAGES.has(stage) &&
+      !stage.startsWith("revision.") &&
+      !stage.startsWith("issue.")
+    ) {
       // No checkpoint for this stage, so nobody was asked — recorded as `auto`
       // rather than silently credited to a human (H7).
       return { approved: true, authority: "auto" }
@@ -80,6 +84,7 @@ export class HumanApprover implements ApprovalGate {
           return { approved: false, message: `Rejected by operator at ${stage} checkpoint` }
         case "m": {
           if (
+            stage.startsWith("issue.") ||
             ["revision.reasoningContext", "revision.selfCheck", "revision.final"].includes(stage)
           ) {
             output("This checkpoint cannot be hand-edited; reject or regenerate the draft.\n")
@@ -97,7 +102,7 @@ export class HumanApprover implements ApprovalGate {
           continue
         }
         case "g":
-          if (stage === "revision.final") {
+          if (stage === "revision.final" || stage.startsWith("issue.")) {
             output("Reject this draft to request a new revision.\n")
             continue
           }
@@ -187,6 +192,7 @@ export class HumanApprover implements ApprovalGate {
 
   private renderSummary(stage: string, artifact: unknown): string {
     const heading = `─=≡ Σ SCAD CHECKPOINT — ${stage.toUpperCase()}\n`
+    if (stage.startsWith("issue.")) return heading + JSON.stringify(artifact, null, 2) + "\n"
     if (stage.startsWith("revision.")) {
       const proposal = artifact as {
         revisionId: string
