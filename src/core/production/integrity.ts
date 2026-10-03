@@ -104,11 +104,27 @@ export function knowledgeCeilingFor(
   claimIds: readonly string[],
   context: Pick<ReasoningContext, "claims" | "activeHypotheses">,
   text?: string,
+  hypothesisIds: readonly string[] = [],
 ): KnowledgeCeiling {
   const views = claimIds
     .map((id) => context.claims.find((claim) => claim.claimId === id))
     .filter((claim): claim is ContextClaimView => claim !== undefined)
 
+  const declaredHypotheses = hypothesisIds.map((id) =>
+    context.activeHypotheses.find((h) => h.hypothesisId === id),
+  )
+  if (declaredHypotheses.some((h) => h === undefined))
+    return {
+      level: UNTRACEABLE_CEILING,
+      reason: "unresolvable explicit hypothesis reference",
+      subjectIds: [...hypothesisIds],
+    }
+  if (views.length === 0 && declaredHypotheses.length > 0)
+    return {
+      level: QUALIFIED_CLAIM_CEILING,
+      reason: "explicit hypothesis reference without factual claim support",
+      subjectIds: [...hypothesisIds],
+    }
   if (views.length === 0) {
     return {
       level: UNTRACEABLE_CEILING,
@@ -117,7 +133,20 @@ export function knowledgeCeilingFor(
     }
   }
 
-  const asserted = assertedHypothesesFor(text, claimIds, context)
+  const asserted = [
+    ...new Set([
+      ...assertedHypothesesFor(text, claimIds, context),
+      ...declaredHypotheses
+        .filter(
+          (h) =>
+            h &&
+            (h.verificationStatus !== "SUPPORTED" ||
+              h.status === "REJECTED" ||
+              h.status === "SUPERSEDED"),
+        )
+        .map((h) => h!.hypothesisId),
+    ]),
+  ]
 
   let ceiling: KnowledgeLevel = "FACT"
   const forced = new Map<string, string>()
@@ -373,8 +402,9 @@ export function enforceKnowledgeCeiling(
   claimIds: readonly string[],
   context: Pick<ReasoningContext, "claims" | "activeHypotheses">,
   text?: string,
+  hypothesisIds: readonly string[] = [],
 ): { level: KnowledgeLevel; ceiling: KnowledgeCeiling; changed: boolean } {
-  const ceiling = knowledgeCeilingFor(claimIds, context, text)
+  const ceiling = knowledgeCeilingFor(claimIds, context, text, hypothesisIds)
   // FICTION is an explicit authorial marker, never a factual assertion, and is
   // never re-labelled.
   if (current === "FICTION") {

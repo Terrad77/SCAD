@@ -411,6 +411,7 @@ export async function cmdProduction(
       log("  no production audit recorded (run the selfCheck stage).")
     } else {
       log(`  production audit: ${report.verdict} (epistemicMutation: ${report.epistemicMutation})`)
+      if (report.narrativeReferences) log(JSON.stringify(report.narrativeReferences, null, 2))
       for (const c of report.checks) log(`    [${c.status}] ${c.id}: ${c.detail}`)
       for (const d of report.diagnostics) {
         log(`    ${d.severity} ${d.kind} → ${d.route}: ${d.detail}`)

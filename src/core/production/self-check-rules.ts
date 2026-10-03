@@ -1,3 +1,4 @@
+import { auditNarrativeReferences } from "./linkage.js"
 import type { Narrative, Shot, VisualOutput } from "../types.js"
 import { findConstraint } from "./constraints.js"
 import {
@@ -177,6 +178,7 @@ export function auditProduction(input: ProductionAuditInput): SelfCheckProductio
         sentence.claimIds,
         context,
         sentence.text,
+        sentence.hypothesisIds,
       )
       if (changed) {
         overstated.push(sentence.id)
@@ -504,11 +506,18 @@ export function auditProduction(input: ProductionAuditInput): SelfCheckProductio
         sentence.claimIds,
         context,
       )
-      if (asserted.length > 0) inflated.push(sentence.id)
+      if (
+        asserted.length > 0 ||
+        sentence.hypothesisIds?.some(
+          (id) =>
+            hypothesisById.get(id)?.verificationStatus !== "SUPPORTED" ||
+            ["REJECTED", "SUPERSEDED"].includes(hypothesisById.get(id)?.status ?? ""),
+        )
+      )
+        inflated.push(sentence.id)
       if (resembles.length > 0)
         ambiguous.push({ sentenceId: sentence.id, hypothesisIds: resembles })
     }
-    void hypothesisById
     const dropped = context.activeHypotheses
       .filter(
         (h) =>
@@ -609,6 +618,48 @@ export function auditProduction(input: ProductionAuditInput): SelfCheckProductio
     }
   }
 
+  const narrativeReferences = auditNarrativeReferences(narrative, context)
+  if (narrativeReferences.mode === "explicit") {
+    if (narrativeReferences.structuralStatus === "FAIL") {
+      const check = findings.checks.find((c) => c.id === "TRACEABILITY")!
+      check.status = "FAIL"
+      delete check.unknownReason
+      check.detail +=
+        " Invalid explicit narrative references: " +
+        narrativeReferences.issues.map((i) => i.detail).join("; ")
+      check.subjectIds = [
+        ...new Set([
+          ...check.subjectIds,
+          ...narrativeReferences.issues.flatMap((i) => (i.sentenceId ? [i.sentenceId] : [])),
+        ]),
+      ]
+      diagnose(
+        "traceability",
+        "critical",
+        "Explicit references do not resolve to their declared subjects.",
+        check.subjectIds,
+      )
+    }
+    if (narrativeReferences.semanticStatus === "UNKNOWN") {
+      const check = findings.checks.find((c) => c.id === "EPISTEMIC_INTEGRITY")!
+      if (check.status === "PASS" || check.status === "UNKNOWN") {
+        check.status = "UNKNOWN"
+        check.unknownReason = "unverifiable"
+        check.detail +=
+          " Explicit references and treatment explanations verify structure only; prose semantics remains unverified."
+      }
+    }
+    if (narrativeReferences.structuralStatus === "WARN")
+      diagnose(
+        "epistemic-integrity",
+        "warning",
+        "Some constraints have no valid explicit treatment reference.",
+        narrativeReferences.constraints
+          .filter((c) => c.status === "MISSING")
+          .map((c) => c.constraintId),
+      )
+  }
+
   const order = new Map<ProductionCheckId, number>(
     PRODUCTION_CHECK_IDS.map((id, index) => [id, index]),
   )
@@ -619,6 +670,7 @@ export function auditProduction(input: ProductionAuditInput): SelfCheckProductio
     contextSignature: context.contextSignature,
     reasoningCycleId: context.reasoningCycleId,
     verdict: verdictOf(findings.checks),
+    narrativeReferences,
     checks: findings.checks,
     diagnostics: findings.diagnostics,
     epistemicMutation: false,

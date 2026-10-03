@@ -1,3 +1,4 @@
+import { referencesUncertaintySubject } from "./linkage.js"
 import type { Narrative } from "../types.js"
 import { assertedHypothesesFor, enforceKnowledgeCeiling } from "./integrity.js"
 import type {
@@ -23,6 +24,8 @@ import type {
  */
 
 export interface CoverageSentence {
+  hypothesisIds?: string[]
+  uncertaintyIds?: string[]
   id: string
   text: string
   knowledge: Narrative["sections"][number]["sentences"][number]["knowledge"]
@@ -221,8 +224,11 @@ export function uncertaintyCoverage(
       unverifiable.push(uncertainty.uncertaintyId)
       continue
     }
-    const relevant = sentences.filter((sentence) =>
-      sentenceAddresses(sentence, uncertainty.subjectType, uncertainty.subjectId, context),
+    const relevant = sentences.filter(
+      (sentence) =>
+        (sentence.uncertaintyIds?.includes(uncertainty.uncertaintyId) &&
+          referencesUncertaintySubject(sentence, uncertainty, context)) ||
+        sentenceAddresses(sentence, uncertainty.subjectType, uncertainty.subjectId, context),
     )
     if (relevant.length === 0) {
       uncovered.push(uncertainty.uncertaintyId)
@@ -278,6 +284,11 @@ function sentenceAddresses(
   }
   if (subjectType === "hypothesis") {
     if (!isHedge(sentence.knowledge)) return false
+    if (
+      sentence.hypothesisIds?.includes(subjectId) &&
+      context.activeHypotheses.some((h) => h.hypothesisId === subjectId)
+    )
+      return true
     const hypothesis = context.activeHypotheses.find((h) => h.hypothesisId === subjectId)
     if (hypothesis === undefined) return false
     return assertedHypothesesFor(sentence.text, sentence.claimIds, context).includes(subjectId)
@@ -342,6 +353,7 @@ export function verifyViolationPostcondition(
           sentence.claimIds,
           context,
           sentence.text,
+          sentence.hypothesisIds,
         ).changed
       })
       if (stillOver.length > 0) {

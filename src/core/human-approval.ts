@@ -378,6 +378,12 @@ export class HumanApprover implements ApprovalGate {
         `--- production audit (v0.7) — verdict ${report.verdict} (no epistemic mutation) ---`,
         ...report.checks.map((c) => `  [${c.status}] ${c.id}: ${c.detail}`),
       )
+      if (report.narrativeReferences)
+        lines.push(
+          "",
+          "Narrative references (structural and semantic results):",
+          JSON.stringify(report.narrativeReferences, null, 2),
+        )
       if (report.diagnostics.length > 0) {
         lines.push("", `  Diagnostics (routed, not applied):`)
         for (const d of report.diagnostics) {

@@ -1,3 +1,4 @@
+import type { NarrativeLinkageReport } from "./linkage-schema.js"
 import type {
   ClaimStatus,
   CompletenessStatus,
@@ -363,6 +364,7 @@ export interface SelfCheckDiagnostic {
 }
 
 export interface SelfCheckProductionReport {
+  narrativeReferences?: NarrativeLinkageReport
   inputSignature: string
   contextSignature: string
   reasoningCycleId: string | null

@@ -69,6 +69,8 @@ export function contextForPrompt(context: ReasoningContext): Record<string, unkn
     })),
     activeHypotheses: context.activeHypotheses.map((hypothesis) => ({
       id: hypothesis.hypothesisId,
+      versionId: hypothesis.versionId,
+      statement: hypothesis.statement,
       status: hypothesis.status,
       verificationStatus: hypothesis.verificationStatus,
       confidence: hypothesis.confidence,
@@ -81,6 +83,9 @@ export function contextForPrompt(context: ReasoningContext): Record<string, unkn
       subjectId: uncertainty.subjectId,
       detail: uncertainty.detail,
     })),
+    contradictions: context.constraints
+      .filter((c) => c.kind === "DO_NOT_RESOLVE_CONTRADICTION")
+      .map((c) => ({ id: c.subjectIds[0], claimIds: c.subjectIds.slice(1) })),
     constraints: context.constraints.map((constraint) => ({
       id: constraint.id,
       kind: constraint.kind,

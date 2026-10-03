@@ -1,3 +1,4 @@
+import type { ConstraintTreatment } from "./production/linkage-schema.js"
 import type { ProductionProvenance, SelfCheckProductionReport } from "./production/types.js"
 
 export const SOURCE_TYPES = [
@@ -255,6 +256,10 @@ export interface Hypothesis {
 }
 
 export interface NarrativeSentence {
+  hypothesisIds?: string[]
+  uncertaintyIds?: string[]
+  contradictionIds?: string[]
+  constraintTreatments?: ConstraintTreatment[]
   id: string
   text: string
   knowledge: KnowledgeLevel

@@ -392,3 +392,39 @@ and research; this feature does not bootstrap a new project or recover arbitrary
 schema corruption. Structural diff makes no claim of semantic equivalence.
 The audit cannot certify future canonical writes; that scope check may remain
 UNKNOWN. No automatic feedback, research, reasoning, or media generation is added.
+
+## v0.9 — Explicit narrative references and structural coverage
+
+Narrative sentences optionally carry `hypothesisIds`, `uncertaintyIds`,
+`contradictionIds`, and `constraintTreatments` (constraint ID, exact subject IDs,
+treatment kind, explanation). Existing sentences remain valid without these fields;
+absent fields are not synthesized during parsing or replay.
+
+Hypothesis IDs identify an assertion even when its prose is paraphrased. The guard
+uses explicit unverified hypothesis links to enforce the knowledge ceiling, while
+retaining lexical detection for omitted references. A hypothesis link never creates
+evidence or authorizes an unsupported FACT. Merely citing an established supporting
+claim does not assert the hypothesis. Guards preserve IDs and text; the independent
+audit reports dangling and unrelated links instead of deleting them.
+
+`selfCheck.production.narrativeReferences` separates `structuralStatus` from
+`semanticStatus`. It resolves targets against the signed ReasoningContext, checks
+uncertainty subject relationships, contradiction sides, treatment kinds/subjects,
+and unique sentence ownership. Coverage lists the actual responsible sentence IDs.
+Missing treatments are reported; human approval constraints are marked GOVERNANCE
+and cannot be fulfilled by model-authored text. A contradiction treatment requires
+both sides across its referenced sentences for structural coverage.
+
+Valid IDs or a convincing treatment explanation **do not prove the prose obeys the
+constraint**. Semantic status stays UNKNOWN. Explicit-reference narratives cannot
+receive a clean epistemic PASS based only on these declarations; broken references
+cause TRACEABILITY FAIL. Existing label, evidence-chain, uncertainty, contradiction,
+visual and scope checks remain active. Legacy narratives receive a legacy/UNKNOWN
+reference report without changing the established v0.7 checking policy.
+
+The script, CLI audit and human review show the references and report. Reference
+metadata participates in artifact content signatures and dependency-bound approvals:
+a metadata edit can stale visual/SelfCheck and requires review in a production
+revision. v0.8 snapshots retain the fields and reference reports through crash/resume.
+No new memory store, LLM judge, embeddings, research feedback, belief updates or
+autonomous regeneration are introduced.

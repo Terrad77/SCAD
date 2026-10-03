@@ -115,6 +115,7 @@ export function guardNarrative(
         sentence.claimIds,
         context,
         sentence.text,
+        sentence.hypothesisIds,
       )
       if (changed) {
         normalizations.push({

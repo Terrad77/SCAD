@@ -398,7 +398,17 @@ export function renderScript(narrative: Parameters<typeof buildTraceabilityRepor
     for (const sentence of section.sentences) {
       const tag = `[${sentence.knowledge}]`
       const trace = sentence.claimIds.length ? ` *(claims: ${sentence.claimIds.join(", ")})*` : ""
-      lines.push(`${tag} ${sentence.text}${trace}`)
+      const references = [
+        ...(sentence.hypothesisIds ?? []).map((id) => `hypothesis: ${id}`),
+        ...(sentence.uncertaintyIds ?? []).map((id) => `uncertainty: ${id}`),
+        ...(sentence.contradictionIds ?? []).map((id) => `contradiction: ${id}`),
+        ...(sentence.constraintTreatments ?? []).map(
+          (t) => `constraint: ${t.constraintId} (${t.treatment})`,
+        ),
+      ]
+      lines.push(
+        `${tag} ${sentence.text}${trace}${references.length ? ` *(${references.join("; ")})*` : ""}`,
+      )
     }
     lines.push("")
   }

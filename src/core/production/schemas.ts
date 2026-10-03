@@ -1,3 +1,4 @@
+import { NarrativeLinkageReportSchema } from "./linkage-schema.js"
 import { z } from "zod"
 import {
   CLAIM_STATUSES,
@@ -232,6 +233,7 @@ export const SelfCheckDiagnosticSchema = z.object({
 
 export const SelfCheckProductionReportSchema = z
   .object({
+    narrativeReferences: NarrativeLinkageReportSchema.optional(),
     inputSignature: z.string().min(1),
     contextSignature: z.string().min(1),
     reasoningCycleId: nullableId,

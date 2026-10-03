@@ -62,3 +62,52 @@ result independently. Do not rely on either to clean up your output.
   ]
 }
 ```
+
+## v0.9 — Explicit narrative references
+
+When `reasoningContext` is supplied, include these arrays on each sentence (use
+empty arrays when the sentence has no such references):
+
+```json
+{
+  "hypothesisIds": ["HYP_001"],
+  "uncertaintyIds": [],
+  "contradictionIds": [],
+  "constraintTreatments": [
+    {
+      "constraintId": "QUALIFY_AS_HYPOTHESIS#HYP_001",
+      "subjectIds": ["HYP_001"],
+      "treatment": "qualify-hypothesis",
+      "explanation": "The sentence presents this explanation as a hypothesis."
+    }
+  ]
+}
+```
+
+Copy real IDs from the supplied context; the sample ID is illustrative. Hypothesis
+IDs declare the hypothesis asserted by this sentence, including paraphrases.
+Continue citing factual support using `claimIds`; merely referring to an
+established claim that supports a hypothesis does not assert that hypothesis.
+Do not invent IDs or promote unverified hypotheses to FACT.
+
+An uncertainty link must also reference its subject: a claim through `claimIds`,
+a hypothesis through `hypothesisIds`, or evidence through its supporting claim.
+Global research uncertainties have global scope; their wording still needs review.
+A contradiction link must reference at least one of its two claims; use distinct
+sentences to present both sides if needed.
+
+For each constraint treatment, copy the constraint's complete `subjectIds` and
+explain how that sentence handles it. Use the matching treatment:
+
+- `QUALIFY_AS_HYPOTHESIS`: `qualify-hypothesis`
+- `ACKNOWLEDGE_UNCERTAINTY`: `acknowledge-uncertainty`
+- `DO_NOT_RESOLVE_CONTRADICTION`: `preserve-contradiction`
+- `PRESERVE_RESEARCH_GAPS`: `keep-gap-open`
+- `NO_DEFINITIVE_CONCLUSION`: `avoid-definitive-conclusion`
+- `KEEP_TRACEABLE_TO_CLAIMS`: `maintain-traceability`
+- `DO_NOT_PRESENT_AS_FACT`: `limit-factual-assertion`
+- `DO_NOT_USE_UNSUPPORTED_CAUSAL_LANGUAGE`: `avoid-unsupported-causality`
+
+Do not advertise `REQUIRE_HUMAN_APPROVAL` as a sentence treatment; approval belongs
+to the governance ledger. Metadata and explanations are declarations, not proof.
+The audit independently checks references and preserves UNKNOWN for prose semantics.

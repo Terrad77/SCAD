@@ -227,3 +227,14 @@ export type {
   RevisionDifference,
 } from "./core/production/revisions.js"
 export { createRevisionGenerator } from "./agents/production/revision-generator.js"
+
+export { auditNarrativeReferences, hasExplicitReferences } from "./core/production/linkage.js"
+export {
+  NarrativeReferenceFields,
+  ConstraintTreatmentSchema,
+  NarrativeLinkageReportSchema,
+} from "./core/production/linkage-schema.js"
+export type {
+  ConstraintTreatment,
+  NarrativeLinkageReport,
+} from "./core/production/linkage-schema.js"

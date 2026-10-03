@@ -1,3 +1,4 @@
+import { NarrativeReferenceFields } from "./production/linkage-schema.js"
 import { z } from "zod"
 import {
   APPROVAL_POINTS,
@@ -381,6 +382,7 @@ export const FactCheckOutputSchema = z.object({
 export type FactCheckOutput = z.infer<typeof FactCheckOutputSchema>
 
 export const NarrativeSentenceSchema = z.object({
+  ...NarrativeReferenceFields,
   id: idSchema,
   text: z.string().min(1),
   knowledge: z.enum(KNOWLEDGE_LEVELS),
