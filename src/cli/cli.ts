@@ -1,3 +1,4 @@
+import { withProjectWrite } from "../application/project-write-coordinator.js"
 import {
   ProductionIssueEngine,
   ISSUE_ACTIONS,
@@ -253,7 +254,7 @@ async function readVerifications(memoryDir: string): Promise<HypothesisVerificat
   return hypotheses?.verifications ?? []
 }
 
-export async function cmdInit(
+async function cmdInitUnlocked(
   name: string | undefined,
   question: string,
   title: string,
@@ -273,7 +274,7 @@ export async function cmdList(): Promise<number> {
   return 0
 }
 
-export async function cmdDocumentary(
+async function cmdDocumentaryUnlocked(
   name: string | undefined,
   question: string,
   title: string,
@@ -329,7 +330,7 @@ export async function cmdDocumentary(
  * v0.7 — `scad production <project>`: inspects the reasoning→production handoff.
  * Read-only: it never rebuilds the context and never regenerates the film.
  */
-export async function cmdProduction(
+async function cmdProductionUnlocked(
   name: string | undefined,
   subcommand?: string,
 ): Promise<number> {
@@ -428,7 +429,7 @@ export async function cmdProduction(
   return 0
 }
 
-export async function cmdStage(
+async function cmdStageUnlocked(
   stage: string,
   name: string | undefined,
   force: boolean,
@@ -487,7 +488,7 @@ function requireProject(name: string | undefined): ReturnType<typeof projectDir>
   return projectDir(DATA_DIR, name)
 }
 
-export async function cmdSources(name: string | undefined): Promise<number> {
+async function cmdSourcesUnlocked(name: string | undefined): Promise<number> {
   const dir = requireProject(name)
   if (!dir) return 1
   const research = await readResearch(dir.memoryDir)
@@ -502,7 +503,7 @@ export async function cmdSources(name: string | undefined): Promise<number> {
   return 0
 }
 
-export async function cmdEvidence(name: string | undefined): Promise<number> {
+async function cmdEvidenceUnlocked(name: string | undefined): Promise<number> {
   const dir = requireProject(name)
   if (!dir) return 1
   const research = await readResearch(dir.memoryDir)
@@ -517,7 +518,7 @@ export async function cmdEvidence(name: string | undefined): Promise<number> {
   return 0
 }
 
-export async function cmdContradictions(name: string | undefined): Promise<number> {
+async function cmdContradictionsUnlocked(name: string | undefined): Promise<number> {
   const dir = requireProject(name)
   if (!dir) return 1
   const research = await readResearch(dir.memoryDir)
@@ -534,7 +535,7 @@ export async function cmdContradictions(name: string | undefined): Promise<numbe
   return 0
 }
 
-export async function cmdGaps(name: string | undefined): Promise<number> {
+async function cmdGapsUnlocked(name: string | undefined): Promise<number> {
   const dir = requireProject(name)
   if (!dir) return 1
   const research = await readResearch(dir.memoryDir)
@@ -550,7 +551,7 @@ export async function cmdGaps(name: string | undefined): Promise<number> {
   return 0
 }
 
-export async function cmdTrace(name: string | undefined): Promise<number> {
+async function cmdTraceUnlocked(name: string | undefined): Promise<number> {
   const dir = requireProject(name)
   if (!dir) return 1
   const research = await readResearch(dir.memoryDir)
@@ -591,7 +592,7 @@ const INTELLIGENCE_SUBCOMMANDS = [
 /** v0.7 — read-only views over the reasoning→production handoff. */
 const PRODUCTION_SUBCOMMANDS = ["context", "constraints", "stale", "audit"]
 
-export async function cmdIntelligence(
+async function cmdIntelligenceUnlocked(
   name: string | undefined,
   subcommand: string | undefined,
 ): Promise<number> {
@@ -654,7 +655,7 @@ export async function cmdIntelligence(
  * v0.5 — Reasoning & Hypothesis Evolution: runs the decision–effect cycle over
  * the v0.4 research artifacts and exports the reasoning trace + version log.
  */
-export async function cmdReason(
+async function cmdReasonUnlocked(
   name: string | undefined,
   force: boolean,
   provider?: string,
@@ -724,7 +725,7 @@ export async function cmdReason(
 }
 
 /** v0.8: plans are read-only; revise requires the exact reviewed plan ID and human checkpoints. */
-export async function cmdProductionRevision(
+async function cmdProductionRevisionUnlocked(
   name: string | undefined,
   action: string,
   argument?: string,
@@ -842,7 +843,7 @@ async function exportCompletedRevision(name: string, revision: ProductionRevisio
 }
 
 /** Explicit human workflow; read-only listing never synchronizes findings. */
-export async function cmdProductionIssues(
+async function cmdProductionIssuesUnlocked(
   name: string | undefined,
   action = "list",
   id?: string,
@@ -895,4 +896,94 @@ export async function cmdProductionIssues(
   }
   log(JSON.stringify(result, null, 2))
   return 0
+}
+
+export async function cmdInit(...args: Parameters<typeof cmdInitUnlocked>): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdInitUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdInit", () => cmdInitUnlocked(...args))
+}
+
+export async function cmdDocumentary(
+  ...args: Parameters<typeof cmdDocumentaryUnlocked>
+): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdDocumentaryUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdDocumentary", () =>
+    cmdDocumentaryUnlocked(...args),
+  )
+}
+
+export async function cmdProduction(
+  ...args: Parameters<typeof cmdProductionUnlocked>
+): Promise<number> {
+  return cmdProductionUnlocked(...args)
+}
+
+export async function cmdStage(...args: Parameters<typeof cmdStageUnlocked>): Promise<number> {
+  const project = args[1]
+  if (!project) return cmdStageUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdStage", () => cmdStageUnlocked(...args))
+}
+
+export async function cmdSources(...args: Parameters<typeof cmdSourcesUnlocked>): Promise<number> {
+  return cmdSourcesUnlocked(...args)
+}
+
+export async function cmdEvidence(
+  ...args: Parameters<typeof cmdEvidenceUnlocked>
+): Promise<number> {
+  return cmdEvidenceUnlocked(...args)
+}
+
+export async function cmdContradictions(
+  ...args: Parameters<typeof cmdContradictionsUnlocked>
+): Promise<number> {
+  return cmdContradictionsUnlocked(...args)
+}
+
+export async function cmdGaps(...args: Parameters<typeof cmdGapsUnlocked>): Promise<number> {
+  return cmdGapsUnlocked(...args)
+}
+
+export async function cmdTrace(...args: Parameters<typeof cmdTraceUnlocked>): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdTraceUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdTrace", () => cmdTraceUnlocked(...args))
+}
+
+export async function cmdIntelligence(
+  ...args: Parameters<typeof cmdIntelligenceUnlocked>
+): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdIntelligenceUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdIntelligence", () =>
+    cmdIntelligenceUnlocked(...args),
+  )
+}
+
+export async function cmdReason(...args: Parameters<typeof cmdReasonUnlocked>): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdReasonUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdReason", () => cmdReasonUnlocked(...args))
+}
+
+export async function cmdProductionRevision(
+  ...args: Parameters<typeof cmdProductionRevisionUnlocked>
+): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdProductionRevisionUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdProductionRevision", () =>
+    cmdProductionRevisionUnlocked(...args),
+  )
+}
+
+export async function cmdProductionIssues(
+  ...args: Parameters<typeof cmdProductionIssuesUnlocked>
+): Promise<number> {
+  const project = args[0]
+  if (!project) return cmdProductionIssuesUnlocked(...args)
+  return withProjectWrite(DATA_DIR, project, "cli:cmdProductionIssues", () =>
+    cmdProductionIssuesUnlocked(...args),
+  )
 }

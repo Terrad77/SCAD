@@ -1,3 +1,4 @@
+import { withProjectWrite } from "./project-write-coordinator.js"
 import { lstat, mkdir, readdir, readFile, realpath, rename, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -66,6 +67,9 @@ export class ProjectTrash {
     return { project: data.project, source: project }
   }
   async remove(name: string, version: string) {
+    return withProjectWrite(this.base, name, "trash", () => this.removeOwned(name, version))
+  }
+  private async removeOwned(name: string, version: string) {
     if (this.busy) throw new ViewerError(409, "BUSY", "Another project operation is running")
     this.busy = true
     try {
@@ -93,6 +97,11 @@ export class ProjectTrash {
     }
   }
   async restore(id: string) {
+    const { path } = await this.directory(false)
+    const record = await this.record(path, id)
+    return withProjectWrite(this.base, record.project, "restore", () => this.restoreOwned(id))
+  }
+  private async restoreOwned(id: string) {
     if (this.busy) throw new ViewerError(409, "BUSY", "Another project operation is running")
     this.busy = true
     try {
