@@ -1,3 +1,4 @@
+import { mountFlow } from "./flow/canvas.js"
 import type { ProjectView, TraceGraph, TraceNode } from "../application/project-reader.js"
 
 type Project = { id: string; title: string; question: string; status: string }
@@ -22,6 +23,9 @@ let crumbs: string[] = [],
   issueSeverity = "all",
   issueStatus = "all",
   issueFreshness = "all"
+let disposeFlow: (() => void) | null = null
+let flowGeneration = 0
+let flowSubject: string | null = null
 const labels: Record<string, string> = {
   production: "Production",
   EPISTEMIC_INTEGRITY: "Epistemic integrity",
@@ -184,6 +188,10 @@ function closeTrace() {
 }
 async function openProject(id: string) {
   const ticket = ++generation
+  disposeFlow?.()
+  disposeFlow = null
+  flowGeneration++
+  flowSubject = null
   closeTrace()
   refresh.disabled = true
   setStatus("Reading project files…")
@@ -209,6 +217,9 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  disposeFlow?.()
+  disposeFlow = null
+  flowGeneration++
   heading.replaceChildren(
     element("h1", view.meta?.title || view.id),
     element("p", view.meta?.question || "No project question saved", "muted"),
@@ -220,6 +231,7 @@ function render() {
     ["shots", "Shots"],
     ["audit", "Audit and issues"],
     ["history", "History"],
+    ["flow", "Flow"],
   ])
     tabs.append(
       button(
@@ -238,6 +250,7 @@ function render() {
   if (tab === "shots") shots()
   if (tab === "audit") audit()
   if (tab === "history") history()
+  if (tab === "flow") flow()
 }
 function overview() {
   if (!view) return
@@ -559,6 +572,63 @@ function history() {
     content.append(details)
   }
 }
+function flow() {
+  if (!view) return
+  if (view.production.publication === "PUBLISHING") {
+    content.append(message("Flow is unavailable while publication is incomplete."))
+    return
+  }
+  const ids = [
+    ...new Set([
+      ...(view.visual?.shots.map((shot) => shot.id) ?? []),
+      ...(view.narrative?.sections.flatMap((section) =>
+        section.sentences.map((sentence) => sentence.id),
+      ) ?? []),
+      ...(view.claims?.claims.map((claim) => claim.id) ?? []),
+      ...(flowSubject ? [flowSubject] : []),
+    ]),
+  ]
+  if (!ids.length) {
+    content.append(message("No traceable subjects are available in this snapshot."))
+    return
+  }
+  if (!flowSubject || !ids.includes(flowSubject)) flowSubject = ids[0]!
+  const label = element("label", "Trace subject "),
+    select = element("select")
+  select.setAttribute("aria-label", "Trace subject")
+  for (const id of ids) {
+    const option = element("option", id)
+    option.value = id
+    select.append(option)
+  }
+  select.value = flowSubject
+  select.addEventListener("change", () => {
+    flowSubject = select.value
+    render()
+  })
+  label.append(select)
+  content.append(label)
+  const host = element("div")
+  host.append(message("Loading evidence flow…"))
+  content.append(host)
+  const current = view,
+    ticket = flowGeneration,
+    subject = flowSubject
+  void api<TraceGraph>(
+    `/api/projects/${encodeURIComponent(current.id)}/trace?id=${encodeURIComponent(subject)}&version=${encodeURIComponent(current.readVersion)}`,
+  )
+    .then((graph) => {
+      if (ticket !== flowGeneration || current !== view || tab !== "flow") return
+      host.replaceChildren()
+      disposeFlow = mountFlow(host, graph)
+    })
+    .catch((error: unknown) => {
+      if (ticket === flowGeneration)
+        host.replaceChildren(
+          message(error instanceof Error ? error.message : "Flow unavailable", true),
+        )
+    })
+}
 function nodeText(node: TraceNode) {
   if (!node.data || typeof node.data !== "object")
     return node.status === "UNAVAILABLE"
@@ -581,6 +651,12 @@ function renderTrace(graph: TraceGraph) {
   traceBox.replaceChildren(
     button("Close links", () => {
       closeTrace()
+      render()
+    }),
+    button("Open Flow", () => {
+      flowSubject = graph.subjectId
+      closeTrace()
+      tab = "flow"
       render()
     }),
     element("h2", "Links and evidence"),

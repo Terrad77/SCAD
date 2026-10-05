@@ -1,0 +1,11 @@
+# Interactive evidence Flow
+
+The English viewer now includes a **Flow** tab. Select a saved shot, sentence or claim to inspect the existing trace API as a graph. **Open Flow** in the links panel opens the same subject. Each graph remains bound to the captured project readVersion; drift and incomplete publication are rejected by the existing API.
+
+React renders the graph while the existing TypeScript viewer retains navigation. Node data is indexed by ID. Node-local external-store subscriptions update only the moved node and incident edges. The viewport transform is applied directly, avoiding React updates during pan and zoom. The canvas uses SVG edges and translate3d node transforms. Grid snapping occurs when a move commits.
+
+Commands keep up to 100 layout edits for Undo/Redo. Drag creates one command, pointer cancellation rolls back, arrows move by grid increments, Shift+arrows use larger increments. Delete hides a node from this view; Undo or Reset layout restores it. It never removes saved data. Space+drag and background drag pan; the wheel and +/- zoom around an anchor; F and Fit frame visible nodes. Keyboard shortcuts apply only while focus is inside the canvas.
+
+Layout and viewport are ephemeral. Changing the project, subject or tab resets them. Saved node text is escaped by React and shown unchanged in the inspector. Missing, ambiguous and unavailable references retain their status; a found reference is not evidence support. Unsupported edges use a dashed red line.
+
+Build using `npm run build`, which compiles domain code with TypeScript and bundles the React browser entry with esbuild. Browser code is served locally under the existing CSP; no CDN or cloud service is required. The API remains GET-only. This increment does not add editing, approvals, generation, interprocess writer locks or Supabase.
