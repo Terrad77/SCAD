@@ -18,7 +18,7 @@ import {
 } from "./cli.js"
 
 const USAGE =
-  "Usage: scad <init|research|claims|hypotheses|factCheck|reasoningContext|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|intelligence|reason|production|documentary|list> [project-name] [quality|completeness|verify|contradictions|uncertainty|context|constraints|stale|audit] [--force] [--interactive] [--provider <mock|brave>]"
+  "Usage: scad <init|research|claims|hypotheses|factCheck|reasoningContext|narrative|visual|selfCheck|sources|evidence|gaps|contradictions|trace|intelligence|reason|production|documentary|viewer|list> [project-name] [quality|completeness|verify|contradictions|uncertainty|context|constraints|stale|audit] [--force] [--interactive] [--provider <mock|brave>]"
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -27,6 +27,25 @@ export async function main(argv: string[]): Promise<number> {
     case "init": {
       const parsed = parseArgs(rest)
       return cmdInit(parsed.name, parsed.question ?? "", parsed.title ?? parsed.name ?? "")
+    }
+    case "viewer": {
+      if (rest.length > 2 || (rest.length > 0 && rest[0] !== "--port"))
+        throw new Error("Usage: scad viewer [--port 4311]")
+      const port = rest[0] === "--port" ? Number(rest[1]) : 4311
+      const { startViewer } = await import("../server/viewer-server.js")
+      const viewer = await startViewer({
+        dataDir: process.env.SCAD_DATA_DIR ?? "data/projects",
+        port,
+      })
+      console.log(`[scad] Local viewer: ${viewer.url}`)
+      const stop = () => {
+        void viewer.close().then(() => {
+          process.exitCode = 0
+        })
+      }
+      process.once("SIGINT", stop)
+      process.once("SIGTERM", stop)
+      return 0
     }
     case "list":
       return cmdList()

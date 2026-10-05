@@ -125,12 +125,18 @@ describe("HttpContentProvider", () => {
 
 describe("MockContentProvider", () => {
   it("returns fixture text deterministically", async () => {
-    const provider = new MockContentProvider()
-    const url = Object.keys(MOCK_CONTENT_FIXTURES)[0]!
-    const first = await provider.fetchContent({ url })
-    const second = await provider.fetchContent({ url })
-    expect(second).toEqual(first)
-    expect(second.text.length).toBeGreaterThan(0)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2024-06-01T00:00:00.000Z"))
+    try {
+      const provider = new MockContentProvider()
+      const url = Object.keys(MOCK_CONTENT_FIXTURES)[0]!
+      const first = await provider.fetchContent({ url })
+      const second = await provider.fetchContent({ url })
+      expect(second).toEqual(first)
+      expect(second.text.length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("returns empty text for unknown URLs", async () => {

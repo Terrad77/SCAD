@@ -72,7 +72,7 @@ const CHECK: Record<SelfCheckDiagnostic["kind"], ProductionCheckId> = {
 }
 // Historical write observations cannot be reconstructed from an artifact snapshot.
 // Independently compare all content checks; scope remains UNKNOWN on this read path.
-function contentChecks(report: import("./types.js").SelfCheckProductionReport) {
+export function contentChecks(report: import("./types.js").SelfCheckProductionReport) {
   const { verdict: _verdict, ...rest } = report
   return {
     ...rest,
