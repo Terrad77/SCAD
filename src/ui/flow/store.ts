@@ -4,6 +4,7 @@ type Change = { id: string; before: Position; after: Position }
 type Command = { changes: Change[] }
 type Listener = () => void
 export const SUMMARY = Symbol("flow-summary")
+export const COMMITTED = Symbol("flow-committed")
 export const GRID = 24
 export const NODE_WIDTH = 240
 export const NODE_HEIGHT = 144
@@ -60,6 +61,33 @@ export class FlowStore {
       this.positions.set(node.id, position)
       this.initial.set(node.id, position)
     }
+  }
+  exportLayout() {
+    return this.ids.map((id) => {
+      const p = this.get(id)
+      return { id, x: p.x, y: p.y, hidden: p.hidden }
+    })
+  }
+  restoreLayout(nodes: Array<{ id: string; x: number; y: number; hidden: boolean }>) {
+    for (const node of nodes) {
+      if (this.positions.has(node.id))
+        this.positions.set(node.id, {
+          x: snap(node.x),
+          y: snap(node.y),
+          hidden: node.hidden,
+          selected: false,
+        })
+    }
+  }
+  reveal(id: string) {
+    const before = this.get(id)
+    if (before.hidden) {
+      const after = { ...before, hidden: false }
+      this.positions.set(id, after)
+      this.emit(id)
+      this.record([{ id, before, after }])
+    }
+    this.select(id)
   }
   get = (id: string) => this.positions.get(id)!
   getSummary = () => this.summary
@@ -142,6 +170,7 @@ export class FlowStore {
     if (this.undoStack.length > 100) this.undoStack.shift()
     this.redoStack = []
     this.publish()
+    this.emit(COMMITTED)
   }
   private apply(command: Command, backward: boolean) {
     for (const c of command.changes) {
@@ -158,6 +187,7 @@ export class FlowStore {
       this.apply(command, true)
       this.redoStack.push(command)
       this.publish()
+      this.emit(COMMITTED)
     }
   }
   redo() {
@@ -166,6 +196,7 @@ export class FlowStore {
       this.apply(command, false)
       this.undoStack.push(command)
       this.publish()
+      this.emit(COMMITTED)
     }
   }
 }

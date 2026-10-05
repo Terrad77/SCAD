@@ -620,7 +620,7 @@ function flow() {
     .then((graph) => {
       if (ticket !== flowGeneration || current !== view || tab !== "flow") return
       host.replaceChildren()
-      disposeFlow = mountFlow(host, graph)
+      disposeFlow = mountFlow(host, graph, current.id)
     })
     .catch((error: unknown) => {
       if (ticket === flowGeneration)

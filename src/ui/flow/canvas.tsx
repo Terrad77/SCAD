@@ -1,4 +1,11 @@
-import { memo, useEffect, useRef, useSyncExternalStore } from "react"
+import {
+  loadLayout,
+  saveLayout,
+  searchNodes,
+  type LayoutScope,
+  type LayoutStorage,
+} from "./layout-storage.js"
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import type { KeyboardEvent, PointerEvent } from "react"
 import { createRoot } from "react-dom/client"
 import type { TraceGraph, TraceNode } from "../../application/project-reader.js"
@@ -8,6 +15,7 @@ import {
   NODE_HEIGHT,
   NODE_WIDTH,
   SUMMARY,
+  COMMITTED,
   zoomAt,
   type Position,
 } from "./store.js"
@@ -156,7 +164,91 @@ function Inspector({ store }: { store: FlowStore }) {
     </div>
   )
 }
-function Flow({ store }: { store: FlowStore }) {
+function NodeSearch({ store, focus }: { store: FlowStore; focus: (id: string) => void }) {
+  const [query, setQuery] = useState("")
+  const results = searchNodes(store.graph, query)
+  return (
+    <div className="flow-search">
+      <label>
+        Find node{" "}
+        <input
+          type="search"
+          aria-label="Find node"
+          placeholder="ID, type, status or content"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && results[0]) {
+              e.preventDefault()
+              focus(results[0].id)
+            }
+          }}
+        />
+      </label>
+      {query.trim() && (
+        <div className="flow-results" aria-live="polite">
+          {results.length ? (
+            <>
+              <small>
+                {results.length} matching node{results.length === 1 ? "" : "s"}
+              </small>
+              {results.slice(0, 20).map((node) => (
+                <button key={node.id} onClick={() => focus(node.id)}>
+                  {node.id} · {node.kind} · {node.status.toLowerCase()}
+                </button>
+              ))}
+              {results.length > 20 && (
+                <small>Showing the first 20 results. Refine your search.</small>
+              )}
+            </>
+          ) : (
+            <small>No nodes match your search.</small>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+function LayoutStatus({
+  store,
+  storage,
+  scope,
+  initialStatus,
+}: {
+  store: FlowStore
+  storage: LayoutStorage | null
+  scope: LayoutScope
+  initialStatus: string
+}) {
+  const [status, setStatus] = useState(initialStatus)
+  useEffect(
+    () =>
+      store.subscribe(COMMITTED, () =>
+        setStatus(
+          storage && saveLayout(storage, scope, store.exportLayout())
+            ? "Layout saved in this browser"
+            : "Could not save layout; changes are temporary",
+        ),
+      ),
+    [store, storage, scope],
+  )
+  return (
+    <p className="flow-save-status" role="status">
+      {status}. Project files are unchanged.
+    </p>
+  )
+}
+function Flow({
+  store,
+  storage,
+  scope,
+  initialStatus,
+}: {
+  store: FlowStore
+  storage: LayoutStorage | null
+  scope: LayoutScope
+  initialStatus: string
+}) {
   const canvas = useRef<HTMLDivElement>(null),
     world = useRef<HTMLDivElement>(null),
     zoomLabel = useRef<HTMLOutputElement>(null)
@@ -202,6 +294,19 @@ function Flow({ store }: { store: FlowStore }) {
       zoom,
     }
     update()
+  }
+  const focusNode = (id: string) => {
+    if (!canvas.current || gesture.current) return
+    store.reveal(id)
+    const position = store.get(id),
+      zoom = Math.max(0.75, viewport.current.zoom)
+    viewport.current = {
+      x: canvas.current.clientWidth / 2 - (position.x + NODE_WIDTH / 2) * zoom,
+      y: canvas.current.clientHeight / 2 - (position.y + NODE_HEIGHT / 2) * zoom,
+      zoom,
+    }
+    update()
+    canvas.current.focus()
   }
   const zoom = (factor: number) => {
     if (!canvas.current) return
@@ -343,6 +448,8 @@ function Flow({ store }: { store: FlowStore }) {
   return (
     <div className="flow-shell">
       <Toolbar store={store} fit={fit} zoom={zoom} />
+      <NodeSearch store={store} focus={focusNode} />
+      <LayoutStatus store={store} storage={storage} scope={scope} initialStatus={initialStatus} />
       <p className="flow-help">
         Drag nodes · Drag background / Space + drag to pan · Scroll to zoom · Arrows move selection
         · Delete hides from view · Ctrl/Cmd+Z undo · F fit <output ref={zoomLabel} />
@@ -399,8 +506,20 @@ function Flow({ store }: { store: FlowStore }) {
     </div>
   )
 }
-export function mountFlow(element: HTMLElement, graph: TraceGraph) {
-  const root = createRoot(element)
-  root.render(<Flow store={new FlowStore(graph)} />)
+export function mountFlow(element: HTMLElement, graph: TraceGraph, project: string) {
+  const root = createRoot(element),
+    store = new FlowStore(graph),
+    scope = { project, subject: graph.subjectId, readVersion: graph.readVersion }
+  let storage: LayoutStorage | null = null
+  try {
+    storage = window.localStorage
+  } catch {
+    /* Browser policy may disable persistence. */
+  }
+  const saved = storage
+    ? loadLayout(storage, scope, graph)
+    : { nodes: null, status: "Browser layout storage unavailable; using a temporary layout" }
+  if (saved.nodes) store.restoreLayout(saved.nodes)
+  root.render(<Flow store={store} storage={storage} scope={scope} initialStatus={saved.status} />)
   return () => root.unmount()
 }
