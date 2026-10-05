@@ -141,7 +141,7 @@ export class SnapshotMemory implements MemoryStore {
 export type TraceNode = {
   id: string
   kind: string
-  status: "FOUND" | "MISSING" | "AMBIGUOUS"
+  status: "FOUND" | "MISSING" | "AMBIGUOUS" | "UNAVAILABLE"
   data: unknown
 }
 export type TraceGraph = {
@@ -161,8 +161,8 @@ export class ProjectReader {
     try {
       return await realpath(resolve(this.base))
     } catch (error) {
-      if (missing(error)) throw new ViewerError(404, "ROOT_MISSING", "Каталог проектов не найден")
-      throw new ViewerError(403, "ROOT_UNREADABLE", "Каталог проектов недоступен")
+      if (missing(error)) throw new ViewerError(404, "ROOT_MISSING", "Project directory not found")
+      throw new ViewerError(403, "ROOT_UNREADABLE", "Project directory is unavailable")
     }
   }
   private async directory(name: string) {
@@ -172,29 +172,37 @@ export class ProjectReader {
       name.endsWith(".") ||
       name.endsWith(" ")
     )
-      throw new ViewerError(400, "INVALID_PROJECT", "Недопустимый идентификатор проекта")
+      throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
     const root = await this.root(),
       path = join(root, name)
     try {
       const info = await lstat(path)
       if (!info.isDirectory() || info.isSymbolicLink() || !inside(root, await realpath(path)))
-        throw new ViewerError(403, "UNSAFE_PATH", "Ссылки и каталоги вне корня не поддерживаются")
+        throw new ViewerError(
+          403,
+          "UNSAFE_PATH",
+          "Links and directories outside the project root are not supported",
+        )
       return path
     } catch (error) {
       if (error instanceof ViewerError) throw error
-      throw new ViewerError(missing(error) ? 404 : 403, "PROJECT_UNAVAILABLE", "Проект недоступен")
+      throw new ViewerError(
+        missing(error) ? 404 : 403,
+        "PROJECT_UNAVAILABLE",
+        "Project is unavailable",
+      )
     }
   }
   private async file(project: string, path: string): Promise<RawFile> {
     try {
       const parent = await lstat(join(path, ".."))
       if (parent.isSymbolicLink())
-        throw new ViewerError(403, "UNSAFE_PATH", "Каталоги-ссылки не поддерживаются")
+        throw new ViewerError(403, "UNSAFE_PATH", "Linked directories are not supported")
       const info = await lstat(path)
       if (info.isSymbolicLink() || !info.isFile() || !inside(project, await realpath(path)))
-        throw new ViewerError(403, "UNSAFE_PATH", "Файл за пределами разрешённого проекта")
+        throw new ViewerError(403, "UNSAFE_PATH", "File is outside the allowed project directory")
       if (info.size > 16 * 1024 * 1024)
-        throw new ViewerError(413, "ARTIFACT_TOO_LARGE", "Артефакт превышает лимит просмотра 16 МБ")
+        throw new ViewerError(413, "ARTIFACT_TOO_LARGE", "Artifact exceeds the 16 MB viewer limit")
       return { raw: await readFile(path, "utf8"), error: false }
     } catch (error) {
       if (error instanceof ViewerError) throw error
@@ -210,7 +218,7 @@ export class ProjectReader {
       values.reduce((size, file) => size + Buffer.byteLength(file.raw ?? ""), 0) >
       64 * 1024 * 1024
     )
-      throw new ViewerError(413, "SNAPSHOT_TOO_LARGE", "Снимок превышает лимит просмотра 64 МБ")
+      throw new ViewerError(413, "SNAPSHOT_TOO_LARGE", "Snapshot exceeds the 64 MB viewer limit")
     return Object.fromEntries(["meta", ...KEYS].map((k, index) => [k, values[index]!]))
   }
   private async stable(name: string) {
@@ -224,7 +232,7 @@ export class ProjectReader {
     throw new ViewerError(
       409,
       "UNSTABLE_SNAPSHOT",
-      "Материалы меняются во время чтения. Обновите проект позже.",
+      "Project files changed while being read. Refresh the project later.",
     )
   }
   private parse<T>(
@@ -235,21 +243,34 @@ export class ProjectReader {
   ): T | null {
     const entry = files[key]!
     if (entry.error) {
-      states[key] = { status: "UNREADABLE", reason: "Не удалось прочитать файл" }
+      states[key] = { status: "UNREADABLE", reason: "Unable to read the file" }
       return null
     }
     if (entry.raw === null) {
       states[key] = { status: "MISSING", reason: null }
       return null
     }
+    let decoded: unknown
     try {
-      const value = schema.parse(JSON.parse(entry.raw))
-      states[key] = { status: "VALID", reason: null }
-      return value
+      decoded = JSON.parse(entry.raw)
     } catch {
-      states[key] = { status: "CORRUPT", reason: "Некорректный JSON или схема" }
+      states[key] = {
+        status: "CORRUPT",
+        reason: "Invalid JSON syntax: the file could not be parsed",
+      }
       return null
     }
+    const result = schema.safeParse(decoded)
+    if (!result.success) {
+      const location = result.error.issues[0]?.path.join(".") || "document root"
+      states[key] = {
+        status: "CORRUPT",
+        reason: `Data does not match the current schema (field: ${location}). The format may be outdated or the structure invalid.`,
+      }
+      return null
+    }
+    states[key] = { status: "VALID", reason: null }
+    return result.data
   }
   async list() {
     let root: string
@@ -302,7 +323,7 @@ export class ProjectReader {
       try {
         return await read()
       } catch {
-        states[key] = { status: "CORRUPT", reason: "Журнал не прошёл проверку схемы или подписи" }
+        states[key] = { status: "CORRUPT", reason: "Journal failed schema or signature validation" }
         return fallback
       }
     }
@@ -335,9 +356,9 @@ export class ProjectReader {
     let auditIntegrity: "MATCH" | "MISMATCH" | "UNVERIFIABLE" = "UNVERIFIABLE"
     let notice: string | null = null
     if (pending?.status === "PUBLISHING")
-      notice = "Публикация незавершена. Canonical файлы могут относиться к разным версиям."
+      notice = "Publication is incomplete. Current files may belong to different versions."
     else if (!healthy)
-      notice = "Часть материалов повреждена или недоступна; актуальность не подтверждена."
+      notice = "Some files failed validation or are unavailable; freshness is unverified."
     else if (context) {
       try {
         // Engines consume original signed values, not schema-reconstructed display DTOs.
@@ -359,7 +380,7 @@ export class ProjectReader {
         }
       } catch {
         freshness = null
-        notice = "Не удалось подтвердить актуальность сохранённого состояния."
+        notice = "Unable to verify the freshness of the saved state."
       }
     }
     const snapshotSignature = contentSignature({
@@ -380,6 +401,7 @@ export class ProjectReader {
       narrative: coherent ? narrative : null,
       visual: coherent ? visual : null,
       context: coherent ? context : null,
+      claims: values.claims as z.infer<typeof ClaimsOutputSchema> | null,
       research: values.research as z.infer<typeof ResearchOutputSchema> | ResearchBundle | null,
       selfCheck: coherent ? selfCheck : null,
       liveAudit,
@@ -410,13 +432,13 @@ export class ProjectReader {
       throw new ViewerError(
         409,
         "VIEW_CHANGED",
-        "Проект изменился; обновите его перед просмотром связей",
+        "The project changed; refresh it before inspecting links",
       )
     if (view.production.publication === "PUBLISHING")
       throw new ViewerError(
         409,
         "PUBLISHING",
-        "Связи canonical snapshot недоступны во время публикации",
+        "Current snapshot links are unavailable during publication",
       )
     const graph: TraceGraph = {
       subjectId,
@@ -427,13 +449,14 @@ export class ProjectReader {
     }
     const research = view.research && "evidence" in view.research ? view.research : null
     const service = research ? new TraceService(research) : null
+    const claims = research?.claims ?? view.claims?.claims ?? []
     const sentences = view.narrative?.sections.flatMap((s) => s.sentences) ?? []
     const shots = view.visual?.shots ?? []
     const lookup = (id: string): { kind: string; values: unknown[] } => {
       const groups: Array<[string, Array<{ id: string }>]> = [
         ["sentence", sentences],
         ["shot", shots],
-        ["claim", research?.claims ?? []],
+        ["claim", claims],
         ["evidence", research?.evidence ?? []],
         ["source", view.research?.sources ?? []],
       ]
@@ -455,10 +478,25 @@ export class ProjectReader {
       if (visited.has(id)) return
       visited.add(id)
       const { kind, values } = lookup(id)
+      const unavailable =
+        !research &&
+        !values.length &&
+        claims.some(
+          (c) =>
+            (c.evidenceIds ?? []).includes(id) ||
+            (view.research === null && c.sources.includes(id)),
+        )
       graph.nodes.push({
         id,
         kind,
-        status: values.length === 1 ? "FOUND" : values.length > 1 ? "AMBIGUOUS" : "MISSING",
+        status:
+          values.length === 1
+            ? "FOUND"
+            : values.length > 1
+              ? "AMBIGUOUS"
+              : unavailable
+                ? "UNAVAILABLE"
+                : "MISSING",
         data: values.length === 1 ? values[0] : null,
       })
       if (values.length !== 1) return
@@ -480,14 +518,20 @@ export class ProjectReader {
         const shot = shots.find((s) => s.id === id)!
         for (const sid of shot.narrativeSentenceIds) edge(sid, "narration")
       } else if (kind === "claim") {
-        const trace = service?.traceClaim(id)
-        for (const eid of trace?.claim.evidenceIds ?? [])
+        const claim = claims.find((c) => c.id === id)!
+        for (const eid of claim.evidenceIds ?? [])
           edge(
             eid,
             "evidence-reference",
-            research!.evidence.find((e) => e.id === eid)?.supportsClaims.includes(id) ?? false,
+            research
+              ? (research.evidence.find((e) => e.id === eid)?.supportsClaims.includes(id) ?? false)
+              : null,
           )
-        for (const sid of trace?.claim.sources ?? []) edge(sid, "declared-source")
+        for (const sid of claim.sources) edge(sid, "declared-source")
+        if (!research)
+          graph.notices.push(
+            `Claim ${id} was found in a standalone file; its evidence support is unverified.`,
+          )
       } else if (kind === "evidence") {
         const trace = service?.traceEvidence(id)
         if (trace) edge(trace.evidence.sourceId, "source")
@@ -495,16 +539,16 @@ export class ProjectReader {
     }
     visit(subjectId)
     if (!research)
-      graph.notices.push("Полный ResearchBundle отсутствует: цепочки evidence недоступны.")
+      graph.notices.push(
+        "The complete research bundle is unavailable: claim support cannot be verified. Saved claims and references are shown separately.",
+      )
     if (
       view.production.freshness?.artifacts.some((a) => a.status !== "CURRENT") ||
       !view.production.freshness
     )
-      graph.notices.push(
-        "Связи отражают сохранённые материалы; актуальность production не подтверждена.",
-      )
+      graph.notices.push("Links reflect saved files; production freshness is unverified.")
     graph.notices.push(
-      "Явные ссылки hypothesis/uncertainty/constraint — декларации, а не доказательства.",
+      "Explicit hypothesis, uncertainty and constraint references are declarations, not evidence.",
     )
     return graph
   }

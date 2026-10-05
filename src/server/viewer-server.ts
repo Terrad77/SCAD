@@ -36,11 +36,11 @@ export async function startViewer(options: {
         throw new ViewerError(
           403,
           "ORIGIN_DENIED",
-          "Доступ разрешён только из локальной рабочей области",
+          "Access is only allowed from the local workspace",
         )
       if (req.method !== "GET") {
         res.setHeader("Allow", "GET")
-        throw new ViewerError(405, "READ_ONLY", "Рабочая область поддерживает только просмотр")
+        throw new ViewerError(405, "READ_ONLY", "The workspace is read-only")
       }
       const url = new URL(req.url ?? "/", `http://${authority}`)
       if (url.pathname === "/") {
@@ -54,32 +54,28 @@ export async function startViewer(options: {
         return
       }
       if (!url.pathname.startsWith("/api/"))
-        throw new ViewerError(404, "NOT_FOUND", "Страница не найдена")
+        throw new ViewerError(404, "NOT_FOUND", "Page not found")
       const supplied = req.headers.authorization?.replace(/^Bearer /, "") ?? ""
       if (
         Buffer.byteLength(supplied) !== Buffer.byteLength(token) ||
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
-        throw new ViewerError(
-          401,
-          "SESSION_REQUIRED",
-          "Откройте локальную рабочую область для доступа к API",
-        )
+        throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
       let value: unknown
       if (url.pathname === "/api/projects") value = await reader.list()
       else {
         const match = /^\/api\/projects\/([^/]+)(?:\/trace)?$/.exec(url.pathname)
-        if (!match) throw new ViewerError(404, "NOT_FOUND", "Операция не найдена")
+        if (!match) throw new ViewerError(404, "NOT_FOUND", "Operation not found")
         let name: string
         try {
           name = decodeURIComponent(match[1]!)
         } catch {
-          throw new ViewerError(400, "INVALID_PROJECT", "Некорректный идентификатор проекта")
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
         }
         if (url.pathname.endsWith("/trace")) {
           const subject = url.searchParams.get("id")
           if (!subject || subject.length > 512)
-            throw new ViewerError(400, "SUBJECT_REQUIRED", "Идентификатор связи обязателен")
+            throw new ViewerError(400, "SUBJECT_REQUIRED", "A link identifier is required")
           value = await reader.trace(name, subject, url.searchParams.get("version") ?? undefined)
         } else value = await reader.read(name)
       }
@@ -96,8 +92,7 @@ export async function startViewer(options: {
       res.end(
         JSON.stringify({
           code: error instanceof ViewerError ? error.code : "READ_FAILED",
-          error:
-            error instanceof ViewerError ? error.message : "Не удалось прочитать материалы проекта",
+          error: error instanceof ViewerError ? error.message : "Unable to read project files",
         }),
       )
     })

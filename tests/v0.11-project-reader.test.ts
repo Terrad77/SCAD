@@ -283,3 +283,27 @@ describe("v0.11 project reader", () => {
     expect(await reader.list()).toHaveLength(1)
   })
 })
+
+it("distinguishes invalid JSON from incompatible schema", async () => {
+  await writeFile(join(project, "memory", "claims.json"), "{")
+  expect((await reader.read("demo")).files.claims!.reason).toContain("JSON syntax")
+  await writeFile(join(project, "memory", "claims.json"), JSON.stringify({ claims: "legacy" }))
+  const view = await reader.read("demo")
+  expect(view.files.claims!.reason).toContain("current schema")
+  expect(view.files.claims!.reason).toContain("claims")
+})
+it("retains standalone claims and unresolved evidence without certifying support", async () => {
+  const research = (await memory.get<ResearchBundle>("research"))!
+  await memory.save("claims", { claims: research.claims })
+  await memory.save("research", { sources: research.sources, summary: "Legacy research" })
+  const graph = await reader.trace("demo", research.claims[0]!.id)
+  expect(graph.nodes.find((n) => n.id === research.claims[0]!.id)!.status).toBe("FOUND")
+  expect(graph.nodes.some((n) => n.kind === "source" && n.status === "FOUND")).toBe(true)
+  expect(
+    graph.edges
+      .filter((e) => e.relation === "evidence-reference")
+      .every((e) => e.supported === null),
+  ).toBe(true)
+  expect(graph.nodes.some((n) => n.status === "UNAVAILABLE")).toBe(true)
+  expect(graph.notices.some((n) => n.includes("evidence support is unverified"))).toBe(true)
+})
