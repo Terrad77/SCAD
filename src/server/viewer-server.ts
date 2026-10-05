@@ -1,3 +1,4 @@
+import { ProjectTrash } from "../application/project-trash.js"
 import { createServer, type Server } from "node:http"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { readFile } from "node:fs/promises"
@@ -18,6 +19,7 @@ export async function startViewer(options: {
     throw new Error("Viewer port must be an integer from 0 to 65535")
   const reader = new ProjectReader(options.dataDir),
     token = randomBytes(32).toString("hex")
+  const trash = new ProjectTrash(options.dataDir)
   let authority = ""
   const server = createServer((req, res) => {
     const handle = async () => {
@@ -38,11 +40,19 @@ export async function startViewer(options: {
           "ORIGIN_DENIED",
           "Access is only allowed from the local workspace",
         )
-      if (req.method !== "GET") {
+      if (!["GET", "DELETE", "POST"].includes(req.method ?? "")) {
         res.setHeader("Allow", "GET")
         throw new ViewerError(405, "READ_ONLY", "The workspace is read-only")
       }
       const url = new URL(req.url ?? "/", `http://${authority}`)
+      if (
+        req.method !== "GET" &&
+        !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
+        !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
+      ) {
+        res.setHeader("Allow", "GET")
+        throw new ViewerError(405, "READ_ONLY", "This operation is read-only")
+      }
       if (url.pathname === "/") {
         res.setHeader("Content-Type", "text/html; charset=utf-8")
         res.end(viewerHtml(token))
@@ -61,6 +71,32 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const deletion = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
+      const restoration = /^\/api\/trash\/([a-f0-9-]{36})\/restore$/.exec(url.pathname)
+      if (req.method !== "GET") {
+        if (req.headers.origin !== `http://${authority}`)
+          throw new ViewerError(
+            403,
+            "ORIGIN_REQUIRED",
+            "Project operations require a local browser origin",
+          )
+        let result: unknown
+        if (req.method === "DELETE" && deletion)
+          result = await trash.remove(
+            decodeURIComponent(deletion[1]!),
+            url.searchParams.get("version") ?? "",
+          )
+        else if (req.method === "POST" && restoration) result = await trash.restore(restoration[1]!)
+        else throw new ViewerError(405, "READ_ONLY", "This operation is read-only")
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(result))
+        return
+      }
+      if (url.pathname === "/api/trash") {
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(await trash.list()))
+        return
+      }
       let value: unknown
       if (url.pathname === "/api/projects") value = await reader.list()
       else {

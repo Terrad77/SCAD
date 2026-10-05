@@ -1,3 +1,4 @@
+import { mountWorkspaceHome, type WorkspaceState } from "./workspace-home.js"
 import { mountFlow } from "./flow/canvas.js"
 import type { ProjectView, TraceGraph, TraceNode } from "../application/project-reader.js"
 
@@ -23,6 +24,9 @@ let crumbs: string[] = [],
   issueSeverity = "all",
   issueStatus = "all",
   issueFreshness = "all"
+let disposeHome: (() => void) | null = null
+let projectListTicket = 0
+let trashItems: Array<{ id: string; project: string }> = []
 let disposeFlow: (() => void) | null = null
 let flowGeneration = 0
 let flowSubject: string | null = null
@@ -142,8 +146,9 @@ function setStatus(text: string, error = false) {
   statusBox.textContent = text
   statusBox.classList.toggle("error", error)
 }
-async function api<T>(path: string): Promise<T> {
+async function api<T>(path: string, method = "GET"): Promise<T> {
   const response = await fetch(path, {
+    method,
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   })
@@ -187,6 +192,9 @@ function closeTrace() {
   crumbs = []
 }
 async function openProject(id: string) {
+  projectListTicket++
+  disposeHome?.()
+  disposeHome = null
   const ticket = ++generation
   disposeFlow?.()
   disposeFlow = null
@@ -209,6 +217,14 @@ async function openProject(id: string) {
   } catch (error) {
     if (ticket === generation) {
       heading.replaceChildren(element("h1", "Project is unavailable"))
+      content.replaceChildren(
+        button("Try again", () => {
+          void openProject(id)
+        }),
+        button("Back to workspace", () => {
+          void loadProjects()
+        }),
+      )
       setStatus(error instanceof Error ? error.message : "Read error", true)
     }
   } finally {
@@ -243,7 +259,37 @@ function render() {
         tab === id ? "selected" : undefined,
       ),
     )
+  for (const control of tabs.querySelectorAll("button")) {
+    if (control.classList.contains("selected")) control.setAttribute("aria-current", "page")
+  }
   content.replaceChildren()
+  const sectionCopy: Record<string, [string, string]> = {
+    overview: [
+      "Project overview",
+      "Inspect saved materials and their current verification status.",
+    ],
+    narrative: ["Script", "Read the saved story and follow each sentence back to its claims."],
+    shots: ["Shot list", "Inspect visual treatments alongside their narration and evidence links."],
+    audit: [
+      "Audit and issues",
+      "Review saved findings. A disposition does not certify that an issue is resolved.",
+    ],
+    history: [
+      "Production history",
+      "Compare saved revisions and inspect the decisions behind them.",
+    ],
+    flow: [
+      "Evidence Flow",
+      "Explore the connections between shots, sentences, claims and sources.",
+    ],
+  }
+  const section = sectionCopy[tab]
+  content.className = "project-content section-" + tab
+  if (section) {
+    const intro = element("header", undefined, "section-intro")
+    intro.append(element("h2", section[0]), element("p", section[1], "muted"))
+    content.append(intro)
+  }
   if (view.production.notice) content.append(message(view.production.notice, true))
   if (tab === "overview") overview()
   if (tab === "narrative") narrative()
@@ -746,28 +792,81 @@ refresh.addEventListener("click", () => {
   if (view) void openProject(view.id)
   else void loadProjects()
 })
+function showHome(state: WorkspaceState) {
+  disposeHome?.()
+  disposeHome = null
+  content.className = ""
+  heading.replaceChildren(element("h1", "My workspace"))
+  tabs.replaceChildren()
+  content.replaceChildren()
+  disposeHome = mountWorkspaceHome(
+    content,
+    state,
+    (id) => {
+      void openProject(id)
+    },
+    () => {
+      void loadProjects()
+    },
+    trashItems,
+    deleteProject,
+    restoreProject,
+  )
+}
 async function loadProjects() {
+  const ticket = ++projectListTicket
+  refresh.disabled = true
+  showHome({ kind: "loading" })
   setStatus("Reading project list…")
   try {
-    projects = await api<Project[]>("/api/projects")
+    const [result, deleted] = await Promise.all([
+      api<Project[]>("/api/projects"),
+      api<Array<{ id: string; project: string }>>("/api/trash"),
+    ])
+    if (ticket !== projectListTicket) return
+    trashItems = deleted
+    projects = result
     renderProjects()
-    if (!view) {
-      heading.replaceChildren(element("h1", "SCAD workspace"))
-      content.replaceChildren(
-        element(
-          "p",
-          "Select a project to inspect its script, evidence chains and issues.",
-          "empty",
-        ),
-      )
-      setStatus(
-        projects.length
-          ? "Select a project on the left"
-          : "Create a project using the CLI, then refresh the list",
-      )
-    }
+    showHome({ kind: "ready", projects })
+    setStatus("Local projects loaded")
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : "Projects unavailable", true)
+    if (ticket !== projectListTicket) return
+    const message = error instanceof Error ? error.message : "Projects unavailable"
+    showHome({ kind: "error", message })
+    setStatus("Projects unavailable", true)
+  } finally {
+    if (ticket === projectListTicket) refresh.disabled = false
   }
 }
+get<HTMLButtonElement>("workspace-home").addEventListener("click", () => {
+  generation++
+  disposeFlow?.()
+  disposeFlow = null
+  flowGeneration++
+  view = null
+  closeTrace()
+  void loadProjects()
+})
 void loadProjects()
+
+async function deleteProject(id: string) {
+  const snapshot = await api<ProjectView>("/api/projects/" + encodeURIComponent(id))
+  await api(
+    "/api/projects/" +
+      encodeURIComponent(id) +
+      "?version=" +
+      encodeURIComponent(snapshot.readVersion),
+    "DELETE",
+  )
+  await loadProjects()
+}
+async function restoreProject(id: string) {
+  await api("/api/trash/" + encodeURIComponent(id) + "/restore", "POST")
+  await loadProjects()
+}
+get<HTMLButtonElement>("project-toggle").addEventListener("click", () => {
+  const toggle = get<HTMLButtonElement>("project-toggle")
+  const expanded = toggle.getAttribute("aria-expanded") !== "true"
+  toggle.setAttribute("aria-expanded", String(expanded))
+  get("project-navigation").classList.toggle("expanded", expanded)
+})

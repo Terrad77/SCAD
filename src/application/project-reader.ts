@@ -283,7 +283,7 @@ export class ProjectReader {
     const entries = await readdir(root, { withFileTypes: true })
     const result: Array<{ id: string; title: string; question: string; status: string }> = []
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isDirectory()) continue
+      if (!entry.isDirectory() || entry.name === ".scad-trash") continue
       try {
         const project = await this.directory(entry.name),
           raw = await this.file(project, join(project, "project.json"))

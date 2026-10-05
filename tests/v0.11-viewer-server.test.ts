@@ -65,8 +65,8 @@ describe("v0.11 local viewer API", () => {
     })
     expect(result).toBe(403)
   })
-  it.each(["POST", "PUT", "DELETE", "PATCH"])(
-    "refuses every mutating HTTP method %s",
+  it.each(["POST", "PUT", "PATCH"])(
+    "refuses unsupported mutating HTTP method %s",
     async (method) => {
       const response = await fetch(`${viewer.url}/api/projects/demo`, {
         method,
