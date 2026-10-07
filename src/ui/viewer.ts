@@ -1,3 +1,5 @@
+import { mountProjectDetails } from "./project-details-form.js"
+import type { CreateProjectInput } from "./create-project-form.js"
 import { mountWorkspaceHome, type WorkspaceState } from "./workspace-home.js"
 import { mountFlow } from "./flow/canvas.js"
 import type { ProjectView, TraceGraph, TraceNode } from "../application/project-reader.js"
@@ -24,6 +26,7 @@ let crumbs: string[] = [],
   issueSeverity = "all",
   issueStatus = "all",
   issueFreshness = "all"
+let disposeDetails: (() => void) | null = null
 let disposeHome: (() => void) | null = null
 let projectListTicket = 0
 let trashItems: Array<{ id: string; project: string }> = []
@@ -146,10 +149,14 @@ function setStatus(text: string, error = false) {
   statusBox.textContent = text
   statusBox.classList.toggle("error", error)
 }
-async function api<T>(path: string, method = "GET"): Promise<T> {
+async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
   })
   const value = await response.json()
@@ -193,6 +200,8 @@ function closeTrace() {
 }
 async function openProject(id: string) {
   projectListTicket++
+  disposeDetails?.()
+  disposeDetails = null
   disposeHome?.()
   disposeHome = null
   const ticket = ++generation
@@ -233,6 +242,8 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  disposeDetails?.()
+  disposeDetails = null
   disposeFlow?.()
   disposeFlow = null
   flowGeneration++
@@ -331,6 +342,32 @@ function overview() {
       element("p", `${cycle.cycleId} · ${cycle.status} · ${cycle.trigger}`),
       element("p", cycle.stopping?.reason ?? "No stopping reason recorded", "muted"),
     )
+  }
+  if (view.meta) {
+    const current = view
+    const editor = element("div", undefined, "project-details")
+    content.append(editor)
+    disposeDetails = mountProjectDetails(editor, {
+      title: current.meta!.title,
+      question: current.meta!.question,
+      version: current.readVersion,
+      questionEditable: current.questionEditable,
+      save: async (input) => {
+        await api("/api/projects/" + encodeURIComponent(current.id) + "/settings", "POST", input)
+        if (view !== current) return
+        projects = projects.map((project) =>
+          project.id === current.id
+            ? { ...project, title: input.title, question: input.question }
+            : project,
+        )
+        await openProject(current.id)
+        setStatus("Project details saved")
+        content.focus()
+      },
+      reload: () => {
+        void openProject(current.id)
+      },
+    })
   }
   content.append(element("h2", "Saved artifacts"))
   for (const [key, file] of Object.entries(view.files)) {
@@ -811,6 +848,7 @@ function showHome(state: WorkspaceState) {
     trashItems,
     deleteProject,
     restoreProject,
+    createNewProject,
   )
 }
 async function loadProjects() {
@@ -870,3 +908,16 @@ get<HTMLButtonElement>("project-toggle").addEventListener("click", () => {
   toggle.setAttribute("aria-expanded", String(expanded))
   get("project-navigation").classList.toggle("expanded", expanded)
 })
+
+async function createNewProject(input: CreateProjectInput) {
+  const ticket = projectListTicket
+  const result = await api<{ id: string }>("/api/projects", "POST", input)
+  if (ticket !== projectListTicket) return
+  // Creation succeeded even if a subsequent list read fails.
+  const created = { id: result.id, title: input.title, question: input.question, status: "VALID" }
+  projects = [...projects.filter((project) => project.id !== result.id), created]
+  renderProjects()
+  tab = "overview"
+  await openProject(result.id)
+  content.focus()
+}

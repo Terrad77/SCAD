@@ -11,3 +11,7 @@ Ownership: WorkspaceHome owns search and list/feedback states; viewer owns API r
 Responsive: project rows stack below 700px, search expands, sidebar projects scroll locally, all primary actions at least 44px. Logical DOM order preserved. Skip link targets content; headings and labels remain visible. Existing project sections and Flow retain their behavior.
 
 Budget: baseline browser bundle 253393 bytes; target delta below 10KB raw. No images, remote assets or animation dependencies. Field performance and assistive technology behavior require separate measurement.
+
+Project creation: an inline form above the project list uses the existing surface, border, action and focus tokens. Visible labels, adjacent validation, status announcements and cancel focus return are required. Two stacked fields remain usable on narrow screens. Server ownership and request receipts protect writes; UI state only controls presentation.
+
+Project details: Overview reuses the stacked inline form and existing tokens. A read-only research question has explanatory text when materials exist. Validation, busy state, persistent errors, safe retry and cancel focus return follow the creation form. No new dependency or motion is introduced.

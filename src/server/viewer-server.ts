@@ -1,10 +1,29 @@
+import { updateProjectDetails } from "../application/project-details.js"
+import { createProject } from "../application/project-create.js"
 import { ProjectTrash } from "../application/project-trash.js"
-import { createServer, type Server } from "node:http"
+import { createServer, type Server, type IncomingMessage } from "node:http"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { ProjectReader, ViewerError } from "../application/project-reader.js"
 import { viewerHtml } from "../ui/html.js"
 
+async function readProjectBody(req: IncomingMessage): Promise<unknown> {
+  if (req.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
+    throw new ViewerError(415, "JSON_REQUIRED", "Project operations require JSON")
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
+    size += bytes.length
+    if (size > 32768) throw new ViewerError(413, "BODY_TOO_LARGE", "Project details are too large")
+    chunks.push(bytes)
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
+  } catch {
+    throw new ViewerError(400, "INVALID_JSON", "Project details contain invalid JSON")
+  }
+}
 export interface ViewerServer {
   server: Server
   url: string
@@ -47,6 +66,8 @@ export async function startViewer(options: {
       const url = new URL(req.url ?? "/", `http://${authority}`)
       if (
         req.method !== "GET" &&
+        !(req.method === "POST" && url.pathname === "/api/projects") &&
+        !(req.method === "POST" && /^\/api\/projects\/[^/]+\/settings$/.test(url.pathname)) &&
         !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
         !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
       ) {
@@ -71,6 +92,7 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const settings = /^\/api\/projects\/([^/]+)\/settings$/.exec(url.pathname)
       const deletion = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
       const restoration = /^\/api\/trash\/([a-f0-9-]{36})\/restore$/.exec(url.pathname)
       if (req.method !== "GET") {
@@ -81,7 +103,18 @@ export async function startViewer(options: {
             "Project operations require a local browser origin",
           )
         let result: unknown
-        if (req.method === "DELETE" && deletion)
+        if (req.method === "POST" && url.pathname === "/api/projects") {
+          result = await createProject(options.dataDir, await readProjectBody(req))
+          res.statusCode = 201
+        } else if (req.method === "POST" && settings) {
+          let name: string
+          try {
+            name = decodeURIComponent(settings[1]!)
+          } catch {
+            throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+          }
+          result = await updateProjectDetails(options.dataDir, name, await readProjectBody(req))
+        } else if (req.method === "DELETE" && deletion)
           result = await trash.remove(
             decodeURIComponent(deletion[1]!),
             url.searchParams.get("version") ?? "",

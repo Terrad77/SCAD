@@ -1,3 +1,4 @@
+import { CreateProjectForm, type CreateProjectInput } from "./create-project-form.js"
 import { useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 export type WorkspaceProject = { id: string; title: string; question: string; status: string }
@@ -12,7 +13,9 @@ export function WorkspaceHome({
   trash = [],
   remove,
   restore,
+  create,
 }: {
+  create?: (input: CreateProjectInput) => Promise<void>
   state: WorkspaceState
   open: (id: string) => void
   retry: () => void
@@ -20,6 +23,8 @@ export function WorkspaceHome({
   remove?: (id: string) => Promise<void>
   restore?: (id: string) => Promise<void>
 }) {
+  const [creating, setCreating] = useState(false)
+  const createButton = useRef<HTMLButtonElement>(null)
   const [query, setQuery] = useState("")
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [stopped, setStopped] = useState(false)
@@ -77,6 +82,31 @@ export function WorkspaceHome({
           {state.projects.length === 1 ? "project" : "projects"} · Material inspection
         </p>
       </section>
+      {create && (
+        <section aria-label="Create a project">
+          <button
+            type="button"
+            ref={createButton}
+            disabled={busy}
+            aria-expanded={creating}
+            aria-controls="create-panel"
+            onClick={() => setCreating(true)}
+          >
+            New project
+          </button>
+          {creating && (
+            <div id="create-panel">
+              <CreateProjectForm
+                create={create}
+                cancel={() => {
+                  setCreating(false)
+                  createButton.current?.focus()
+                }}
+              />
+            </div>
+          )}
+        </section>
+      )}
       <section aria-labelledby="home-projects">
         <div className="home-section-heading">
           <h2 id="home-projects">Projects</h2>
@@ -97,7 +127,10 @@ export function WorkspaceHome({
         {!state.projects.length ? (
           <div className="home-feedback">
             <h3>Your workspace is ready for its first project</h3>
-            <p>Create a project with the SCAD command-line tool, then refresh this workspace.</p>
+            <p>
+              Start with New project above, or create one with the SCAD command-line tool and
+              refresh.
+            </p>
             <button type="button" onClick={retry}>
               Refresh projects
             </button>
@@ -242,6 +275,7 @@ export function mountWorkspaceHome(
   trash: Array<{ id: string; project: string }> = [],
   remove?: (id: string) => Promise<void>,
   restore?: (id: string) => Promise<void>,
+  create?: (input: CreateProjectInput) => Promise<void>,
 ) {
   const root = createRoot(element)
   root.render(
@@ -252,6 +286,7 @@ export function mountWorkspaceHome(
       trash={trash}
       remove={remove}
       restore={restore}
+      create={create}
     />,
   )
   return () => root.unmount()

@@ -103,6 +103,21 @@ export class ViewerError extends Error {
     super(message)
   }
 }
+/** project is a validated, resolved directory. Unknown files also fix the question. */
+export async function canChangeProjectQuestion(project: string): Promise<boolean> {
+  for (const folder of ["memory", "output"]) {
+    const path = join(project, folder)
+    try {
+      const info = await lstat(path)
+      if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(path)) !== path)
+        throw new ViewerError(403, "UNSAFE_PATH", "Project materials directory is unsafe")
+      if ((await readdir(path)).length) return false
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+  return true
+}
 function inside(root: string, path: string) {
   const rel = relative(root, path)
   return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
@@ -283,7 +298,11 @@ export class ProjectReader {
     const entries = await readdir(root, { withFileTypes: true })
     const result: Array<{ id: string; title: string; question: string; status: string }> = []
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isDirectory() || [".scad-trash", ".scad-writes"].includes(entry.name)) continue
+      if (
+        !entry.isDirectory() ||
+        [".scad-trash", ".scad-writes", ".scad-creates", ".scad-settings"].includes(entry.name)
+      )
+        continue
       try {
         const project = await this.directory(entry.name),
           raw = await this.file(project, join(project, "project.json"))
@@ -395,6 +414,9 @@ export class ProjectReader {
       id: name,
       readVersion,
       meta,
+      questionEditable: await canChangeProjectQuestion(await this.directory(name)).catch(
+        () => false,
+      ),
       files: states,
       mode: "READ_ONLY" as const,
       production: { publication: pending?.status ?? "IDLE", freshness, auditIntegrity, notice },

@@ -1,3 +1,4 @@
+import { updateProjectDetails } from "../src/application/project-details.js"
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, symlink } from "node:fs/promises"
 import { join } from "node:path"
@@ -213,6 +214,14 @@ describe("v0.11 project reader", () => {
     )
     const view = await reader.read("demo")
     expect(view.production.publication).toBe("PUBLISHING")
+    await expect(
+      updateProjectDetails(root, "demo", {
+        requestId: "b93e3f0e-a671-49cb-a622-d6b1ea28f43e",
+        expectedVersion: view.readVersion,
+        title: "Blocked edit",
+        question: view.meta!.question,
+      }),
+    ).rejects.toMatchObject({ code: "PUBLISHING" })
     expect(view.narrative).toBeNull()
     expect(view.production.freshness).toBeNull()
     expect(view.revisions[0]!.diff.length).toBeGreaterThan(0)
