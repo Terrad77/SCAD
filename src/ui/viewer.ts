@@ -1,3 +1,4 @@
+import { mountProjectRun } from "./project-run-panel.js"
 import { mountProjectDetails } from "./project-details-form.js"
 import type { CreateProjectInput } from "./create-project-form.js"
 import { mountWorkspaceHome, type WorkspaceState } from "./workspace-home.js"
@@ -26,6 +27,7 @@ let crumbs: string[] = [],
   issueSeverity = "all",
   issueStatus = "all",
   issueFreshness = "all"
+let disposeRun: (() => void) | null = null
 let disposeDetails: (() => void) | null = null
 let disposeHome: (() => void) | null = null
 let projectListTicket = 0
@@ -200,6 +202,8 @@ function closeTrace() {
 }
 async function openProject(id: string) {
   projectListTicket++
+  disposeRun?.()
+  disposeRun = null
   disposeDetails?.()
   disposeDetails = null
   disposeHome?.()
@@ -222,7 +226,7 @@ async function openProject(id: string) {
     view = result
     renderProjects()
     render()
-    setStatus("Snapshot loaded · read-only")
+    setStatus("Snapshot loaded")
   } catch (error) {
     if (ticket === generation) {
       heading.replaceChildren(element("h1", "Project is unavailable"))
@@ -242,6 +246,8 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  disposeRun?.()
+  disposeRun = null
   disposeDetails?.()
   disposeDetails = null
   disposeFlow?.()
@@ -311,6 +317,19 @@ function render() {
 }
 function overview() {
   if (!view) return
+  const currentRunProject = view
+  const runPanel = element("div")
+  content.append(runPanel)
+  disposeRun = mountProjectRun(runPanel, {
+    version: currentRunProject.readVersion,
+    canStart: Boolean(currentRunProject.meta?.question.trim()),
+    load: () => api("/api/projects/" + encodeURIComponent(currentRunProject.id) + "/runs"),
+    start: (input) =>
+      api("/api/projects/" + encodeURIComponent(currentRunProject.id) + "/runs", "POST", input),
+    refresh: () => {
+      if (view === currentRunProject) void openProject(currentRunProject.id)
+    },
+  })
   const grid = element("div", undefined, "summary-grid")
   const freshness = !view.production.freshness
     ? "Unverified"

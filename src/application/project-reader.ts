@@ -300,7 +300,9 @@ export class ProjectReader {
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (
         !entry.isDirectory() ||
-        [".scad-trash", ".scad-writes", ".scad-creates", ".scad-settings"].includes(entry.name)
+        [".scad-trash", ".scad-writes", ".scad-creates", ".scad-settings", ".scad-runs"].includes(
+          entry.name,
+        )
       )
         continue
       try {

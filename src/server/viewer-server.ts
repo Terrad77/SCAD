@@ -1,3 +1,4 @@
+import { ProjectRuns } from "../application/project-runs.js"
 import { updateProjectDetails } from "../application/project-details.js"
 import { createProject } from "../application/project-create.js"
 import { ProjectTrash } from "../application/project-trash.js"
@@ -39,6 +40,7 @@ export async function startViewer(options: {
   const reader = new ProjectReader(options.dataDir),
     token = randomBytes(32).toString("hex")
   const trash = new ProjectTrash(options.dataDir)
+  const runs = new ProjectRuns(options.dataDir)
   let authority = ""
   const server = createServer((req, res) => {
     const handle = async () => {
@@ -67,7 +69,9 @@ export async function startViewer(options: {
       if (
         req.method !== "GET" &&
         !(req.method === "POST" && url.pathname === "/api/projects") &&
-        !(req.method === "POST" && /^\/api\/projects\/[^/]+\/settings$/.test(url.pathname)) &&
+        !(
+          req.method === "POST" && /^\/api\/projects\/[^/]+\/(?:settings|runs)$/.test(url.pathname)
+        ) &&
         !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
         !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
       ) {
@@ -92,6 +96,29 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const runRoute = /^\/api\/projects\/([^/]+)\/runs$/.exec(url.pathname)
+      if (runRoute) {
+        let name: string
+        try {
+          name = decodeURIComponent(runRoute[1]!)
+        } catch {
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+        }
+        if (req.method === "POST" && req.headers.origin !== `http://${authority}`)
+          throw new ViewerError(
+            403,
+            "ORIGIN_REQUIRED",
+            "Run operations require a local browser origin",
+          )
+        const result =
+          req.method === "GET"
+            ? await runs.status(name)
+            : await runs.start(name, await readProjectBody(req))
+        res.statusCode = req.method === "POST" ? 202 : 200
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(result))
+        return
+      }
       const settings = /^\/api\/projects\/([^/]+)\/settings$/.exec(url.pathname)
       const deletion = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
       const restoration = /^\/api\/trash\/([a-f0-9-]{36})\/restore$/.exec(url.pathname)
@@ -181,9 +208,11 @@ export async function startViewer(options: {
   return {
     server,
     url: `http://${authority}`,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      await runs.close()
+      return new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      )
+    },
   }
 }

@@ -260,8 +260,9 @@ export function WorkspaceHome({
       <aside className="home-note" aria-labelledby="home-access">
         <h2 id="home-access">A local place to inspect your work</h2>
         <p>
-          Browse scripts, shots, audit findings and evidence Flow. Generation and approvals remain
-          in the SCAD command-line workflow. This viewer does not use a signed-in account.
+          Browse scripts, shots, audit findings and evidence Flow. Start a pipeline run from
+          Overview. Human approvals remain in the SCAD command-line workflow. This viewer does not
+          use a signed-in account.
         </p>
       </aside>
     </div>

@@ -42,6 +42,8 @@ import type {
 } from "./production/types.js"
 
 export interface DocumentaryOptions {
+  /** Awaited observation hook; does not authorize or replace stage execution. */
+  onStageStart?: (stage: string) => Promise<void>
   provider: LLMProvider
   memoryDir: string
   question: string
@@ -173,6 +175,7 @@ export async function runDocumentaryPipeline(
     memory,
     approvals,
     async (stage, context) => {
+      await options.onStageStart?.(stage)
       if (["narrative", "visual", "selfCheck"].includes(stage)) {
         const handoff = context.reasoningContext as ReasoningContext | undefined
         if (handoff && !verifyContextIntegrity(handoff).valid) {

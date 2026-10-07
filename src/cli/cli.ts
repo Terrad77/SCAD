@@ -180,7 +180,7 @@ export const STAGE_COMMANDS = new Set([
   "context",
 ])
 
-async function outputArtifacts(
+export async function outputArtifacts(
   dir: ReturnType<typeof projectDir>,
   result: Awaited<ReturnType<typeof runDocumentaryPipeline>>,
 ): Promise<number> {
