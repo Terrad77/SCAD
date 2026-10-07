@@ -1,9 +1,17 @@
+import { renameWithRetry } from "../core/memory/atomic-replace.js"
+import {
+  ResearchCheckpointSchema,
+  ReviewDecisionSchema,
+  ReviewRequestSchema,
+  readResearchReview,
+  decideResearch,
+} from "./project-reviews.js"
 import { createHash, randomUUID } from "node:crypto"
-import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { z } from "zod"
 import { runDocumentaryPipeline, type DocumentaryOptions } from "../core/documentary.js"
-import { contentSignature } from "../core/production/approval.js"
+import { contentSignature, dependencySignature } from "../core/production/approval.js"
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
 import { assertNoPendingProductionRevision } from "../core/production/revisions.js"
 import { projectDir } from "../storage/project-store.js"
@@ -35,6 +43,8 @@ const Run = z
     expectedVersion: z.string(),
     state: z.enum(["RUNNING", "WAITING_REVIEW", "COMPLETED", "FAILED"]),
     stage: z.string().nullable(),
+    checkpoint: ResearchCheckpointSchema.optional(),
+    decision: ReviewDecisionSchema.optional(),
     startedAt: z.string(),
     updatedAt: z.string(),
     events: z.array(z.object({ at: z.string(), message: z.string() })).max(100),
@@ -81,7 +91,7 @@ async function atomic(path: string, value: unknown) {
   await writeFile(temp, typeof value === "string" ? value : JSON.stringify(value, null, 2), {
     flag: "wx",
   })
-  await rename(temp, path)
+  await renameWithRetry(temp, path)
 }
 /** Owns jobs independently of browser requests. No machine approvals, force or automatic resume. */
 export class ProjectRuns {
@@ -246,6 +256,15 @@ export class ProjectRuns {
           },
           approvals: {
             review: async (stage, artifact) => {
+              if (stage === "research")
+                run.checkpoint = {
+                  artifactSignature: contentSignature(artifact),
+                  dependencySignature: dependencySignature({}),
+                  inputSignature: contentSignature({
+                    title: snapshot.meta!.title,
+                    question: snapshot.meta!.question,
+                  }),
+                }
               run.stage = stage
               run.state = "WAITING_REVIEW"
               await save(
@@ -262,6 +281,7 @@ export class ProjectRuns {
         await save("Pipeline finished. Completion does not certify the audit verdict.")
       } catch (error) {
         if (error instanceof CheckpointPending) return
+
         run.state = "FAILED"
         await save(
           "Run failed. Inspect the project and server provider configuration before another run.",
@@ -278,6 +298,37 @@ export class ProjectRuns {
       this.active.delete(request.requestId)
     })
     return admitted
+  }
+  async review(name: string) {
+    const { run } = await this.status(name)
+    const folder = await this.folder(name)
+    if (!run || !folder)
+      throw new ViewerError(
+        409,
+        "REVIEW_NOT_AVAILABLE",
+        "No browser Research checkpoint is available",
+      )
+    return readResearchReview(this.base, name, folder, run)
+  }
+  async decide(name: string, input: unknown) {
+    const parsed = ReviewRequestSchema.safeParse(input)
+    if (!parsed.success)
+      throw new ViewerError(
+        400,
+        "INVALID_DECISION",
+        "Enter a valid decision and a reason for rejection",
+      )
+    if (this.closing)
+      throw new ViewerError(503, "SERVER_CLOSING", "The workspace server is stopping")
+    return withProjectWrite(this.base, name, "research-review", async () => {
+      await new ProjectReader(this.base).read(name)
+      const folder = await this.folder(name)
+      if (!folder) throw new ViewerError(409, "REVIEW_NOT_AVAILABLE", "No checkpoint is available")
+      const run = await this.load(folder, parsed.data.runId)
+      if (run.project !== name)
+        throw new ViewerError(409, "CHECKPOINT_CHANGED", "Checkpoint does not match the project")
+      return decideResearch(this.base, name, folder, run, parsed.data)
+    })
   }
   async close() {
     this.closing = true

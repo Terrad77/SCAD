@@ -261,8 +261,8 @@ export function WorkspaceHome({
         <h2 id="home-access">A local place to inspect your work</h2>
         <p>
           Browse scripts, shots, audit findings and evidence Flow. Start a pipeline run from
-          Overview. Human approvals remain in the SCAD command-line workflow. This viewer does not
-          use a signed-in account.
+          Overview. Review Research checkpoints in Overview; other approvals remain in the SCAD
+          command-line workflow. This viewer does not use a signed-in account.
         </p>
       </aside>
     </div>

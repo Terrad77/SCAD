@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile, readdir, rm, rename } from "node:fs/promises"
+import { renameWithRetry } from "./atomic-replace.js"
+import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises"
 import { join, basename, extname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -37,7 +38,7 @@ export class JsonMemoryStore implements MemoryStore {
     const target = this.file(key)
     const temp = join(this.dir, `${key}.json.tmp`)
     await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8")
-    await rename(temp, target)
+    await renameWithRetry(temp, target)
   }
 
   /**

@@ -70,7 +70,8 @@ export async function startViewer(options: {
         req.method !== "GET" &&
         !(req.method === "POST" && url.pathname === "/api/projects") &&
         !(
-          req.method === "POST" && /^\/api\/projects\/[^/]+\/(?:settings|runs)$/.test(url.pathname)
+          req.method === "POST" &&
+          /^\/api\/projects\/[^/]+\/(?:settings|runs|review)$/.test(url.pathname)
         ) &&
         !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
         !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
@@ -96,6 +97,28 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const reviewRoute = /^\/api\/projects\/([^/]+)\/review$/.exec(url.pathname)
+      if (reviewRoute) {
+        let name: string
+        try {
+          name = decodeURIComponent(reviewRoute[1]!)
+        } catch {
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+        }
+        if (req.method === "POST" && req.headers.origin !== `http://${authority}`)
+          throw new ViewerError(
+            403,
+            "ORIGIN_REQUIRED",
+            "Review decisions require a local browser origin",
+          )
+        const result =
+          req.method === "GET"
+            ? await runs.review(name)
+            : await runs.decide(name, await readProjectBody(req))
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(result))
+        return
+      }
       const runRoute = /^\/api\/projects\/([^/]+)\/runs$/.exec(url.pathname)
       if (runRoute) {
         let name: string

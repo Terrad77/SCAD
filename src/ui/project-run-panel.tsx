@@ -1,3 +1,5 @@
+import { ResearchReviewPanel } from "./research-review-panel.js"
+import type { ResearchReview, ReviewRequest } from "../application/project-reviews.js"
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import type { ProjectRun, RunView } from "../application/project-runs.js"
@@ -6,6 +8,8 @@ type Props = {
   canStart: boolean
   load: () => Promise<RunView>
   start: (request: { requestId: string; expectedVersion: string }) => Promise<ProjectRun>
+  review: () => Promise<ResearchReview>
+  decide: (input: ReviewRequest) => Promise<NonNullable<ResearchReview["decision"]>>
   refresh: () => void
 }
 export function ProjectRunPanel(props: Props) {
@@ -47,8 +51,9 @@ export function ProjectRunPanel(props: Props) {
   }, [props.load, retry])
   const run = value?.run
   const needsAttention = run?.state === "WAITING_REVIEW" || run?.state === "RUNNING"
-  const state =
-    run?.state === "RUNNING" && !value?.owned
+  const state = run?.decision
+    ? "Review recorded; execution stopped"
+    : run?.state === "RUNNING" && !value?.owned
       ? "Execution unverified"
       : {
           RUNNING: "Running",
@@ -71,6 +76,11 @@ export function ProjectRunPanel(props: Props) {
             : "No browser run recorded"}
       </p>
       {!props.canStart && <p className="notice">Save a research question before starting a run.</p>}
+      {value?.provider === "mock" && (
+        <p className="notice">
+          Demo mode: mock LLM output may contain test fixtures. Verify source links independently.
+        </p>
+      )}
       {value && (
         <p>
           Provider: <strong>{value.provider}</strong>
@@ -78,8 +88,8 @@ export function ProjectRunPanel(props: Props) {
       )}
       {run?.state === "WAITING_REVIEW" && (
         <p className="notice">
-          The candidate is saved. Browser approvals arrive in the next increment. Review and
-          continue through the interactive CLI; this panel does not automatically resume.
+          This run stopped at a human checkpoint. Research decisions are shown below; other stages
+          require the interactive CLI; this panel does not automatically resume.
         </p>
       )}
       {run?.state === "RUNNING" && !value?.owned && (
@@ -154,6 +164,14 @@ export function ProjectRunPanel(props: Props) {
           Refresh materials
         </button>
       </div>
+      {run?.state === "WAITING_REVIEW" && run.stage === "research" && (
+        <ResearchReviewPanel
+          key={run.id}
+          load={props.review}
+          decide={props.decide}
+          changed={() => setRetry((value) => value + 1)}
+        />
+      )}
       {run && (
         <details>
           <summary>Run log ({run.events.length} events)</summary>

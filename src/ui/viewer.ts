@@ -321,6 +321,9 @@ function overview() {
   const runPanel = element("div")
   content.append(runPanel)
   disposeRun = mountProjectRun(runPanel, {
+    review: () => api("/api/projects/" + encodeURIComponent(currentRunProject.id) + "/review"),
+    decide: (input) =>
+      api("/api/projects/" + encodeURIComponent(currentRunProject.id) + "/review", "POST", input),
     version: currentRunProject.readVersion,
     canStart: Boolean(currentRunProject.meta?.question.trim()),
     load: () => api("/api/projects/" + encodeURIComponent(currentRunProject.id) + "/runs"),
