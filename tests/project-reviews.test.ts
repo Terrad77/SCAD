@@ -27,6 +27,7 @@ beforeEach(async () => {
   await vi.waitFor(async () =>
     expect((await jobs.status("demo")).run?.state).toBe("WAITING_REVIEW"),
   )
+  await vi.waitFor(() => withProjectWrite(root, "demo", "test-ready", async () => {}))
 })
 afterEach(async () => {
   await jobs.close()

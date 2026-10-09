@@ -2,12 +2,13 @@ import { ResearchReviewPanel } from "./research-review-panel.js"
 import type { ResearchReview, ReviewRequest } from "../application/project-reviews.js"
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import type { ProjectRun, RunView } from "../application/project-runs.js"
+import type { ProjectRun, RunView, ResumeRequest } from "../application/project-runs.js"
 type Props = {
   version: string
   canStart: boolean
   load: () => Promise<RunView>
   start: (request: { requestId: string; expectedVersion: string }) => Promise<ProjectRun>
+  resume: (input: ResumeRequest) => Promise<ProjectRun>
   review: () => Promise<ResearchReview>
   decide: (input: ReviewRequest) => Promise<NonNullable<ResearchReview["decision"]>>
   refresh: () => void
@@ -21,6 +22,14 @@ export function ProjectRunPanel(props: Props) {
   const request = useRef<{ requestId: string; expectedVersion: string } | null>(null)
   const active = useRef(false)
   const mounted = useRef(true)
+  const status = useRef<HTMLParagraphElement>(null)
+  const focusContinuation = useRef(false)
+  useEffect(() => {
+    if (focusContinuation.current) {
+      status.current?.focus()
+      focusContinuation.current = false
+    }
+  }, [value?.run?.id])
   useEffect(() => {
     mounted.current = true
     let disposed = false
@@ -51,16 +60,17 @@ export function ProjectRunPanel(props: Props) {
   }, [props.load, retry])
   const run = value?.run
   const needsAttention = run?.state === "WAITING_REVIEW" || run?.state === "RUNNING"
-  const state = run?.decision
-    ? "Review recorded; execution stopped"
-    : run?.state === "RUNNING" && !value?.owned
-      ? "Execution unverified"
-      : {
-          RUNNING: "Running",
-          WAITING_REVIEW: "Waiting for human review",
-          COMPLETED: "Completed",
-          FAILED: "Failed",
-        }[run?.state ?? "COMPLETED"]
+  const state =
+    run?.state === "WAITING_REVIEW" && run.decision
+      ? "Review recorded; execution stopped"
+      : run?.state === "RUNNING" && !value?.owned
+        ? "Execution unverified"
+        : {
+            RUNNING: "Running",
+            WAITING_REVIEW: "Waiting for human review",
+            COMPLETED: "Completed",
+            FAILED: "Failed",
+          }[run?.state ?? "COMPLETED"]
   return (
     <section className="run-panel" aria-labelledby="run-heading">
       <h2 id="run-heading">Pipeline run</h2>
@@ -68,7 +78,7 @@ export function ProjectRunPanel(props: Props) {
         Run saved project inputs using the server-configured providers. Generation may use paid
         services. Human checkpoints remain required.
       </p>
-      <p role="status" aria-live="polite">
+      <p ref={status} tabIndex={-1} role="status" aria-live="polite">
         {loading
           ? "Loading run status…"
           : run
@@ -169,6 +179,16 @@ export function ProjectRunPanel(props: Props) {
           key={run.id}
           load={props.review}
           decide={props.decide}
+          resume={props.resume}
+          resumed={(next) => {
+            focusContinuation.current = true
+            setValue((previous) => ({
+              run: next,
+              owned: true,
+              provider: previous?.provider ?? "Server configured",
+            }))
+            setRetry((value) => value + 1)
+          }}
           changed={() => setRetry((value) => value + 1)}
         />
       )}

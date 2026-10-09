@@ -5,6 +5,7 @@ import {
   ReviewRequestSchema,
   readResearchReview,
   decideResearch,
+  assertResearchResumable,
 } from "./project-reviews.js"
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises"
@@ -35,12 +36,15 @@ const Request = z
     expectedVersion: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
+export const ResumeRequestSchema = Request.extend({ runId: z.string().uuid() }).strict()
+export type ResumeRequest = z.infer<typeof ResumeRequestSchema>
 const Run = z
   .object({
     id: z.string().uuid(),
     project: z.string(),
     owner: z.string().uuid(),
     expectedVersion: z.string(),
+    resumeOf: z.string().uuid().optional(),
     state: z.enum(["RUNNING", "WAITING_REVIEW", "COMPLETED", "FAILED"]),
     stage: z.string().nullable(),
     checkpoint: ResearchCheckpointSchema.optional(),
@@ -132,7 +136,9 @@ export class ProjectRuns {
       throw new ViewerError(409, "RUN_JOURNAL_INVALID", "Run journal needs operator inspection")
     const raw = await read(join(folder, id + ".json"))
     try {
-      return Run.parse(JSON.parse(raw ?? "null"))
+      const run = Run.parse(JSON.parse(raw ?? "null"))
+      if (run.id !== id) throw new Error("Run identity mismatch")
+      return run
     } catch {
       throw new ViewerError(409, "RUN_JOURNAL_INVALID", "Run journal needs operator inspection")
     }
@@ -149,16 +155,27 @@ export class ProjectRuns {
     }
   }
   async start(name: string, input: unknown): Promise<ProjectRun> {
-    const parsed = Request.safeParse(input)
+    return this.launch(name, input, false)
+  }
+  async resume(name: string, input: unknown): Promise<ProjectRun> {
+    return this.launch(name, input, true)
+  }
+  private async launch(name: string, input: unknown, continuation: boolean): Promise<ProjectRun> {
+    const parsed = (continuation ? ResumeRequestSchema : Request).safeParse(input)
     if (!parsed.success)
       throw new ViewerError(400, "INVALID_INPUT", "Refresh the project before starting a run")
     if (this.closing)
       throw new ViewerError(503, "SERVER_CLOSING", "The workspace server is stopping")
     const request = parsed.data
+    const resumeOf = "runId" in request ? (request.runId as string) : undefined
+    const matchesRequest = (saved: ProjectRun) =>
+      saved.expectedVersion === request.expectedVersion &&
+      saved.project === name &&
+      saved.resumeOf === resumeOf
     const priorFolder = await this.folder(name)
     if (priorFolder && (await read(join(priorFolder, request.requestId + ".json"))) !== null) {
       const saved = await this.load(priorFolder, request.requestId)
-      if (saved.expectedVersion !== request.expectedVersion || saved.project !== name)
+      if (!matchesRequest(saved))
         throw new ViewerError(
           409,
           "REQUEST_CONFLICT",
@@ -178,7 +195,7 @@ export class ProjectRuns {
       const previous = await read(join(folder, request.requestId + ".json"))
       if (previous !== null) {
         const saved = await this.load(folder, request.requestId)
-        if (saved.expectedVersion !== request.expectedVersion || saved.project !== name)
+        if (!matchesRequest(saved))
           throw new ViewerError(
             409,
             "REQUEST_CONFLICT",
@@ -190,13 +207,23 @@ export class ProjectRuns {
       const latestId = await read(join(folder, "latest.json"))
       if (latestId !== null) {
         const latest = await this.load(folder, latestId)
-        if (["RUNNING", "WAITING_REVIEW"].includes(latest.state))
+        if (resumeOf) {
+          if (latest.id !== resumeOf)
+            throw new ViewerError(
+              409,
+              "CHECKPOINT_CHANGED",
+              "A newer run exists. Check run status before continuing",
+            )
+          await assertResearchResumable(this.base, name, folder, latest)
+        } else if (["RUNNING", "WAITING_REVIEW"].includes(latest.state))
           throw new ViewerError(
             409,
             "RUN_NEEDS_ATTENTION",
             "The previous run requires review or operator recovery; no new run was started",
           )
       }
+      if (resumeOf && latestId === null)
+        throw new ViewerError(409, "RESUME_NOT_AVAILABLE", "No Research checkpoint is available")
       if (snapshot.readVersion !== request.expectedVersion)
         throw new ViewerError(409, "SNAPSHOT_CHANGED", "Project changed. Refresh before starting")
       if (!snapshot.meta?.question.trim())
@@ -228,11 +255,19 @@ export class ProjectRuns {
         project: name,
         owner: this.owner,
         expectedVersion: request.expectedVersion,
+        ...(resumeOf ? { resumeOf } : {}),
         state: "RUNNING",
         stage: null,
         startedAt: now,
         updatedAt: now,
-        events: [{ at: now, message: "Run started. Human checkpoints remain required." }],
+        events: [
+          {
+            at: now,
+            message: resumeOf
+              ? "Explicit continuation of " + resumeOf + ". Human checkpoints remain required."
+              : "Run started. Human checkpoints remain required.",
+          },
+        ],
       }
       const save = async (message: string) => {
         run.updatedAt = new Date().toISOString()

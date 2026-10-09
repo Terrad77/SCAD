@@ -209,6 +209,50 @@ export async function readResearchReview(
     decision: run.decision ?? null,
   }
 }
+/** Call only under shared project write ownership. */
+export async function assertResearchResumable(
+  base: string,
+  name: string,
+  folder: string,
+  run: ProjectRun,
+) {
+  const review = await readResearchReview(base, name, folder, run)
+  const raw = await file(join(folder, run.id + ".decision.json"))
+  let receipt: z.infer<typeof ReceiptSchema>
+  try {
+    receipt = ValidatedReceiptSchema.parse(JSON.parse(raw ?? "null"))
+  } catch {
+    throw new ViewerError(
+      409,
+      "RESUME_NOT_AVAILABLE",
+      "A completed browser approval is required before resuming",
+    )
+  }
+  const done = await file(join(folder, run.id + ".decision-done.json"))
+  const store = await memory(base, name)
+  const approvals = await ledger(store)
+  const snapshot = await new ProjectReader(base).read(name)
+  if (
+    run.decision?.action !== "APPROVE" ||
+    contentSignature(receipt.decision) !== contentSignature(run.decision) ||
+    receipt.request.runId !== run.id ||
+    done !== contentSignature(receipt) ||
+    !receipt.approval ||
+    contentSignature(await approvals.get("research")) !== contentSignature(receipt.approval) ||
+    review.artifactSignature !== run.checkpoint?.artifactSignature ||
+    review.dependencySignature !== run.checkpoint?.dependencySignature ||
+    review.artifact.question !== snapshot.meta?.question ||
+    !run.checkpoint ||
+    run.checkpoint.inputSignature !==
+      contentSignature({ title: snapshot.meta?.title, question: snapshot.meta?.question })
+  )
+    throw new ViewerError(
+      409,
+      "RESUME_NOT_AVAILABLE",
+      "Research approval or inputs changed. Inspect the checkpoint before continuing",
+    )
+  await assertNoPendingProductionRevision(store)
+}
 export async function decideResearch(
   base: string,
   name: string,

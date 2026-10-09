@@ -71,7 +71,7 @@ export async function startViewer(options: {
         !(req.method === "POST" && url.pathname === "/api/projects") &&
         !(
           req.method === "POST" &&
-          /^\/api\/projects\/[^/]+\/(?:settings|runs|review)$/.test(url.pathname)
+          /^\/api\/projects\/[^/]+\/(?:settings|runs|review|resume)$/.test(url.pathname)
         ) &&
         !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
         !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
@@ -97,6 +97,24 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const resumeRoute = /^\/api\/projects\/([^/]+)\/resume$/.exec(url.pathname)
+      if (resumeRoute) {
+        if (req.method !== "POST")
+          throw new ViewerError(405, "POST_REQUIRED", "Resume requires an explicit action")
+        if (req.headers.origin !== `http://${authority}`)
+          throw new ViewerError(403, "ORIGIN_REQUIRED", "Resume requires a local browser origin")
+        let name: string
+        try {
+          name = decodeURIComponent(resumeRoute[1]!)
+        } catch {
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+        }
+        const result = await runs.resume(name, await readProjectBody(req))
+        res.statusCode = 202
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(result))
+        return
+      }
       const reviewRoute = /^\/api\/projects\/([^/]+)\/review$/.exec(url.pathname)
       if (reviewRoute) {
         let name: string

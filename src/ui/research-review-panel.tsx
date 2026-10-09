@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import type { ResearchReview, ReviewRequest } from "../application/project-reviews.js"
+import type { ProjectRun, ResumeRequest } from "../application/project-runs.js"
 type Props = {
+  resume: (input: ResumeRequest) => Promise<ProjectRun>
+  resumed: (run: ProjectRun) => void
   load: () => Promise<ResearchReview>
   decide: (input: ReviewRequest) => Promise<NonNullable<ResearchReview["decision"]>>
   changed: () => void
@@ -23,6 +26,7 @@ export function ResearchReviewPanel(props: Props) {
   const [invalid, setInvalid] = useState(false)
   const [reload, setReload] = useState(0)
   const request = useRef<ReviewRequest | null>(null)
+  const continuation = useRef<ResumeRequest | null>(null)
   const active = useRef(false)
   const alive = useRef(true)
   const reasonField = useRef<HTMLTextAreaElement>(null)
@@ -97,6 +101,30 @@ export function ResearchReviewPanel(props: Props) {
       .catch((failure: unknown) => {
         if (alive.current)
           setError(failure instanceof Error ? failure.message : "Unable to record decision")
+      })
+      .finally(() => {
+        active.current = false
+        if (alive.current) setBusy(false)
+      })
+  }
+  const resume = () => {
+    if (active.current || !review) return
+    continuation.current ??= {
+      requestId: crypto.randomUUID(),
+      runId: review.runId,
+      expectedVersion: review.version,
+    }
+    active.current = true
+    setBusy(true)
+    setError("")
+    void props
+      .resume(continuation.current)
+      .then((next) => {
+        if (alive.current) props.resumed(next)
+      })
+      .catch((failure: unknown) => {
+        if (alive.current)
+          setError(failure instanceof Error ? failure.message : "Unable to resume pipeline")
       })
       .finally(() => {
         active.current = false
@@ -195,6 +223,28 @@ export function ResearchReviewPanel(props: Props) {
               Snapshot: <code>{review.version}</code>
             </p>
           </details>
+          {review.decision?.action === "APPROVE" && (
+            <div>
+              <p>
+                Resume continues from this approved Research candidate and stops at the next
+                unapproved checkpoint. Generation may use paid services. The server checks that your
+                approval is still current.
+              </p>
+              <button type="button" disabled={busy || loading} onClick={resume}>
+                {busy && continuation.current
+                  ? "Resuming..."
+                  : continuation.current
+                    ? "Retry same resume request"
+                    : "Resume pipeline"}
+              </button>
+              {continuation.current && error && (
+                <p>
+                  Retry keeps the same request identity. Check run status before reloading or
+                  starting another request.
+                </p>
+              )}
+            </div>
+          )}
           {review.decidable && (
             <>
               <label htmlFor="review-reason">Decision note (required for rejection)</label>
@@ -237,7 +287,11 @@ export function ResearchReviewPanel(props: Props) {
               </div>
             </>
           )}
-          {busy && <p role="status">Recording decision…</p>}
+          {busy && (
+            <p role="status">
+              {continuation.current ? "Admitting continuation..." : "Recording decision..."}
+            </p>
+          )}
         </>
       )}
       {error && !busy && (
@@ -245,6 +299,7 @@ export function ResearchReviewPanel(props: Props) {
           type="button"
           onClick={() => {
             request.current = null
+            continuation.current = null
             setReason("")
             setReview(null)
             setInvalid(false)

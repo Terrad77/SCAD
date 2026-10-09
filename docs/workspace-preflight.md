@@ -59,3 +59,13 @@ PASS (actual measured CSS viewports): review at 320x900, 2560x1080 and 3440x1440
 Final browser bundle: 277582 bytes, +5868 over 271714, within the increment's 10KB budget. No dependency was added. Main viewer on port 4311 was restarted with the final build.
 
 UNVERIFIED: Retina DPR 2/3 or real hardware (browser measured DPR approximately 0.8), screen reader, real touch devices, field performance, paid/live providers and actual power-loss recovery. Lost-response UI retry was not induced live; durable identical-request replay is covered by tests. Browser Resume and reviews for other pipeline stages are outside this increment. No commit or push performed.
+
+## v0.13.3 explicit Research continuation - 2026-10-09
+
+PASS: 632 tests / 57 files after synchronization fixes; source/test TypeScript, full ESLint, production build and full Prettier. Thirteen new continuation tests cover real Research-to-Claims checkpoint behavior, parent history, byte preservation of Research and approval, durable cross-instance and cross-operation replay conflicts, active/interrupted execution with no automatic relaunch, rejected/undecided/legacy/drifted checkpoints, missing completion receipt, shared ownership and protected HTTP routes.
+
+Initial full regression exposed a test admission race (WAITING_REVIEW becomes visible just before ownership release) and a child-process test exceeding the default 5s runner timeout. Review/resume setup now explicitly waits for ownership release; the subprocess test runner allows 15s around its existing 10s child timeout. Runtime ownership is unchanged. Final full regression passed.
+
+PASS: no new dependencies or animation. Browser bundle 278914 bytes versus 277582 baseline (+1332), within the 10KB increment budget. Updated viewer on port 4311 returned HTTP 200 and served the Resume UI bundle; HTTP verification did not run generation against real project data.
+
+UNVERIFIED: rendered browser/keyboard/responsive pre-flight for the new action. MCP could not initialize its browser runtime (sandbox setup refresh failure; reset and retry also failed). No screenshot, visual or keyboard claim is made for this increment. Previous v0.13.2 mobile/ultrawide results are historical, not a new validation. Retina DPR 2/3, real hardware/touch, screen reader, paid/live providers, field performance and power-loss durability remain unverified. Browser gate stays open in TODO-v0.13.3.md. No commit or push performed.

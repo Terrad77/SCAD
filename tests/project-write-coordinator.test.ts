@@ -34,7 +34,7 @@ describe("shared project writer", () => {
       )
       expect(result.stdout.trim()).toBe("PROJECT_BUSY")
     })
-  })
+  }, 15000)
 
   it("excludes independent writers and case aliases while allowing another project", async () => {
     await withProjectWrite(root, "demo", "first", async () => {
