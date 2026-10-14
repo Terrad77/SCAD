@@ -201,7 +201,7 @@ export async function startViewer(options: {
       let value: unknown
       if (url.pathname === "/api/projects") value = await reader.list()
       else {
-        const match = /^\/api\/projects\/([^/]+)(?:\/trace)?$/.exec(url.pathname)
+        const match = /^\/api\/projects\/([^/]+)(?:\/(?:trace|export))?$/.exec(url.pathname)
         if (!match) throw new ViewerError(404, "NOT_FOUND", "Operation not found")
         let name: string
         try {
@@ -209,7 +209,13 @@ export async function startViewer(options: {
         } catch {
           throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
         }
-        if (url.pathname.endsWith("/trace")) {
+        if (url.pathname.endsWith("/export")) {
+          value = await reader.export(
+            name,
+            url.searchParams.get("version") ?? "",
+            url.searchParams.get("format") ?? "",
+          )
+        } else if (url.pathname.endsWith("/trace")) {
           const subject = url.searchParams.get("id")
           if (!subject || subject.length > 512)
             throw new ViewerError(400, "SUBJECT_REQUIRED", "A link identifier is required")

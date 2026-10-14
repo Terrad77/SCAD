@@ -1,5 +1,15 @@
 # Workspace pre-flight
 
+## v0.13.5 local review exports — 2026-10-14
+
+PASS: full regression 650 tests / 59 files; source/test TypeScript, full ESLint, full Prettier and production build. Seven export tests cover exact raw UTF-8 preservation without writes, knowledge/reference retention, missing/invalid material, stale requests, incomplete publication refusal, preserved FAIL, input bounds, session/Origin/method protection and stale HTTP requests. Initial test fixture used an invalid constraint treatment; corrected to the real schema without relaxing validation. Root formatting needed normal filesystem access because the sandbox could not traverse an ignored brandsans subdirectory. No brandsans file changed.
+
+PASS (Chrome on 4311, MOCK project): keyboard requested both Markdown and JSON downloads, visible preparation disabled both buttons, success remained explicitly phrased as requested. Both files appeared in Downloads. Comparing the downloaded JSON with the saved project found all 11 present allowlisted raw files equal; missing files remain null. The saved WARN verdict and script SPECULATION label survived. The MCP download-event wait timed out despite the file being saved; actual local file presence/content provides the download evidence. Navigation, Overview and export screenshot visually inspected; no generation or project content mutation.
+
+PASS (DOM layout): at actual 319x900 CSS pixels, panel approximately 265px wide, stacked buttons approximately 226px wide and 44px high; document scrollWidth 297px, no horizontal overflow. Temporary viewport reset. Final browser bundle 282967 bytes versus 279973 baseline (+2994), within 10KB; no new dependency, font, raster asset or motion.
+
+UNVERIFIED: induced live export failure/drift/retry and interrupted-response navigation, large browser downloads, actual Retina DPR 2/3, touch devices, screen reader and field performance. Error/blocked/retry paths are implemented; backend failure contracts are automated-test evidence, not live browser observations. No backup import, selected-revision publication package, upload or new generation implemented. No commit/push performed for this increment.
+
 ## Warm palette extension — 2026-10-14
 
 PASS: user reference neutrals applied to shared CSS tokens, forms, navigation, feedback, nodes, grid and SVG edges/arrowheads. #FE5000 is the primary action fill and selection accent; links use a dark orange variant. Main Chrome viewer on 4311 was rebuilt/restarted and its computed paper/accent/node/edge values match the new tokens. Overview and Flow screenshots were saved and visually inspected; Fit and section navigation work. Keyboard Tab showed the dark #3E332C focus ring. Captured browser warning/error logs were empty.

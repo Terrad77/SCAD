@@ -500,6 +500,39 @@ export class ProjectReader {
       })),
     }
   }
+  async export(name: string, expectedVersion: string, format: string) {
+    if (!/^[a-f0-9]{64}$/.test(expectedVersion) || !["script", "snapshot"].includes(format))
+      throw new ViewerError(
+        400,
+        "INVALID_EXPORT",
+        "A snapshot version and supported export format are required",
+      )
+    const view = await this.read(name)
+    if (view.readVersion !== expectedVersion)
+      throw new ViewerError(409, "VIEW_CHANGED", "The project changed. Refresh before exporting.")
+    const files = await this.stable(name)
+    if (version(files) !== expectedVersion)
+      throw new ViewerError(
+        409,
+        "VIEW_CHANGED",
+        "The project changed while preparing the export. Refresh and try again.",
+      )
+    if (
+      Object.values(files).reduce((size, f) => size + Buffer.byteLength(f.raw ?? ""), 0) >
+      12 * 1024 * 1024
+    )
+      throw new ViewerError(
+        413,
+        "EXPORT_TOO_LARGE",
+        "Saved materials exceed the 12 MB review export input limit",
+      )
+    const { buildProjectExport } = await import("./project-export.js")
+    return buildProjectExport(
+      view,
+      Object.fromEntries(Object.entries(files).map(([key, file]) => [key, file.raw])),
+      format as "script" | "snapshot",
+    )
+  }
   async trace(name: string, subjectId: string, expectedVersion?: string): Promise<TraceGraph> {
     const view = await this.read(name)
     if (expectedVersion && expectedVersion !== view.readVersion)

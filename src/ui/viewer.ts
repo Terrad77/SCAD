@@ -1,4 +1,5 @@
 import { mountProjectRun } from "./project-run-panel.js"
+import { mountProjectExport } from "./project-export-panel.js"
 import { mountProjectDetails } from "./project-details-form.js"
 import type { CreateProjectInput } from "./create-project-form.js"
 import { mountWorkspaceHome, type WorkspaceState } from "./workspace-home.js"
@@ -29,6 +30,7 @@ let crumbs: string[] = [],
   issueFreshness = "all"
 let disposeRun: (() => void) | null = null
 let disposeDetails: (() => void) | null = null
+let disposeExport: (() => void) | null = null
 let disposeHome: (() => void) | null = null
 let projectListTicket = 0
 let trashItems: Array<{ id: string; project: string }> = []
@@ -201,6 +203,8 @@ function closeTrace() {
   crumbs = []
 }
 async function openProject(id: string) {
+  disposeExport?.()
+  disposeExport = null
   projectListTicket++
   disposeRun?.()
   disposeRun = null
@@ -246,6 +250,8 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  disposeExport?.()
+  disposeExport = null
   disposeRun?.()
   disposeRun = null
   disposeDetails?.()
@@ -359,6 +365,25 @@ function overview() {
       "Freshness, audit results and issue dispositions are separate. A completed revision does not confirm that all issues are resolved.",
     ),
   )
+  const exportPanel = element("div")
+  content.append(exportPanel)
+  disposeExport = mountProjectExport(exportPanel, {
+    hasScript: Boolean(currentRunProject.narrative),
+    blocked:
+      currentRunProject.production.publication === "PUBLISHING" ||
+      Object.values(currentRunProject.files).some(
+        (file) => file.status === "CORRUPT" || file.status === "UNREADABLE",
+      ),
+    load: (format) =>
+      api(
+        "/api/projects/" +
+          encodeURIComponent(currentRunProject.id) +
+          "/export?format=" +
+          format +
+          "&version=" +
+          encodeURIComponent(currentRunProject.readVersion),
+      ),
+  })
   if (view.reasoning.latestCycle) {
     content.append(element("h2", "Latest reasoning cycle"))
     const cycle = view.reasoning.latestCycle
@@ -854,6 +879,12 @@ refresh.addEventListener("click", () => {
   else void loadProjects()
 })
 function showHome(state: WorkspaceState) {
+  disposeExport?.()
+  disposeExport = null
+  disposeRun?.()
+  disposeRun = null
+  disposeDetails?.()
+  disposeDetails = null
   disposeHome?.()
   disposeHome = null
   content.className = ""
