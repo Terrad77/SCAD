@@ -57,7 +57,7 @@ export interface ApprovalDecision {
 }
 
 export interface ApprovalGate {
-  review(stage: string, artifact: unknown): Promise<ApprovalDecision>
+  review(stage: string, artifact: unknown, proposal?: StageProposal): Promise<ApprovalDecision>
 }
 
 /** Auto-approves every checkpoint — used for automation and tests. */
@@ -199,7 +199,11 @@ export class Pipeline {
     let result = initial
 
     while (true) {
-      const decision = await this.approvals.review(stage, result)
+      const decision = await this.approvals.review(
+        stage,
+        result,
+        proposalFor(stage, result, consumed),
+      )
 
       if (decision.approved) {
         if (decision.replacement !== undefined && result !== undefined) {

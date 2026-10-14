@@ -1,5 +1,5 @@
-import { ResearchReviewPanel } from "./research-review-panel.js"
-import type { ResearchReview, ReviewRequest } from "../application/project-reviews.js"
+import { CheckpointReviewPanel } from "./checkpoint-review-panel.js"
+import type { CheckpointReview, ReviewRequest } from "../application/project-reviews.js"
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import type { ProjectRun, RunView, ResumeRequest } from "../application/project-runs.js"
@@ -9,8 +9,8 @@ type Props = {
   load: () => Promise<RunView>
   start: (request: { requestId: string; expectedVersion: string }) => Promise<ProjectRun>
   resume: (input: ResumeRequest) => Promise<ProjectRun>
-  review: () => Promise<ResearchReview>
-  decide: (input: ReviewRequest) => Promise<NonNullable<ResearchReview["decision"]>>
+  review: () => Promise<CheckpointReview>
+  decide: (input: ReviewRequest) => Promise<NonNullable<CheckpointReview["decision"]>>
   refresh: () => void
 }
 export function ProjectRunPanel(props: Props) {
@@ -98,8 +98,8 @@ export function ProjectRunPanel(props: Props) {
       )}
       {run?.state === "WAITING_REVIEW" && (
         <p className="notice">
-          This run stopped at a human checkpoint. Research decisions are shown below; other stages
-          require the interactive CLI; this panel does not automatically resume.
+          This run stopped at a human checkpoint. Review the saved candidate below. Your decision
+          does not automatically resume execution or certify the audit verdict.
         </p>
       )}
       {run?.state === "RUNNING" && !value?.owned && (
@@ -128,6 +128,7 @@ export function ProjectRunPanel(props: Props) {
       )}
       <div className="project-actions">
         <button
+          className="button-primary"
           type="button"
           disabled={busy || loading || !value || Boolean(needsAttention) || !props.canStart}
           onClick={() => {
@@ -174,8 +175,8 @@ export function ProjectRunPanel(props: Props) {
           Refresh materials
         </button>
       </div>
-      {run?.state === "WAITING_REVIEW" && run.stage === "research" && (
-        <ResearchReviewPanel
+      {run?.state === "WAITING_REVIEW" && (
+        <CheckpointReviewPanel
           key={run.id}
           load={props.review}
           decide={props.decide}

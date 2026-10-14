@@ -1,18 +1,18 @@
 import { renameWithRetry } from "../core/memory/atomic-replace.js"
 import {
-  ResearchCheckpointSchema,
+  CheckpointSchema,
   ReviewDecisionSchema,
   ReviewRequestSchema,
-  readResearchReview,
-  decideResearch,
-  assertResearchResumable,
+  readCheckpointReview,
+  decideCheckpoint,
+  assertCheckpointResumable,
 } from "./project-reviews.js"
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { z } from "zod"
 import { runDocumentaryPipeline, type DocumentaryOptions } from "../core/documentary.js"
-import { contentSignature, dependencySignature } from "../core/production/approval.js"
+import { contentSignature } from "../core/production/approval.js"
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
 import { assertNoPendingProductionRevision } from "../core/production/revisions.js"
 import { projectDir } from "../storage/project-store.js"
@@ -47,7 +47,7 @@ const Run = z
     resumeOf: z.string().uuid().optional(),
     state: z.enum(["RUNNING", "WAITING_REVIEW", "COMPLETED", "FAILED"]),
     stage: z.string().nullable(),
-    checkpoint: ResearchCheckpointSchema.optional(),
+    checkpoint: CheckpointSchema.optional(),
     decision: ReviewDecisionSchema.optional(),
     startedAt: z.string(),
     updatedAt: z.string(),
@@ -214,7 +214,7 @@ export class ProjectRuns {
               "CHECKPOINT_CHANGED",
               "A newer run exists. Check run status before continuing",
             )
-          await assertResearchResumable(this.base, name, folder, latest)
+          await assertCheckpointResumable(this.base, name, folder, latest)
         } else if (["RUNNING", "WAITING_REVIEW"].includes(latest.state))
           throw new ViewerError(
             409,
@@ -223,7 +223,7 @@ export class ProjectRuns {
           )
       }
       if (resumeOf && latestId === null)
-        throw new ViewerError(409, "RESUME_NOT_AVAILABLE", "No Research checkpoint is available")
+        throw new ViewerError(409, "RESUME_NOT_AVAILABLE", "No checkpoint is available")
       if (snapshot.readVersion !== request.expectedVersion)
         throw new ViewerError(409, "SNAPSHOT_CHANGED", "Project changed. Refresh before starting")
       if (!snapshot.meta?.question.trim())
@@ -290,16 +290,21 @@ export class ProjectRuns {
             await save("Generating " + stage)
           },
           approvals: {
-            review: async (stage, artifact) => {
-              if (stage === "research")
-                run.checkpoint = {
-                  artifactSignature: contentSignature(artifact),
-                  dependencySignature: dependencySignature({}),
-                  inputSignature: contentSignature({
-                    title: snapshot.meta!.title,
-                    question: snapshot.meta!.question,
-                  }),
-                }
+            review: async (stage, artifact, proposal) => {
+              if (
+                !proposal ||
+                proposal.stage !== stage ||
+                proposal.artifactSignature !== contentSignature(artifact)
+              )
+                throw new Error("Pipeline checkpoint identity is unavailable")
+              run.checkpoint = {
+                artifactSignature: contentSignature(artifact),
+                dependencySignature: proposal.dependencySignature,
+                inputSignature: contentSignature({
+                  title: snapshot.meta!.title,
+                  question: snapshot.meta!.question,
+                }),
+              }
               run.stage = stage
               run.state = "WAITING_REVIEW"
               await save(
@@ -338,12 +343,8 @@ export class ProjectRuns {
     const { run } = await this.status(name)
     const folder = await this.folder(name)
     if (!run || !folder)
-      throw new ViewerError(
-        409,
-        "REVIEW_NOT_AVAILABLE",
-        "No browser Research checkpoint is available",
-      )
-    return readResearchReview(this.base, name, folder, run)
+      throw new ViewerError(409, "REVIEW_NOT_AVAILABLE", "No browser checkpoint is available")
+    return readCheckpointReview(this.base, name, folder, run)
   }
   async decide(name: string, input: unknown) {
     const parsed = ReviewRequestSchema.safeParse(input)
@@ -355,14 +356,14 @@ export class ProjectRuns {
       )
     if (this.closing)
       throw new ViewerError(503, "SERVER_CLOSING", "The workspace server is stopping")
-    return withProjectWrite(this.base, name, "research-review", async () => {
+    return withProjectWrite(this.base, name, "checkpoint-review", async () => {
       await new ProjectReader(this.base).read(name)
       const folder = await this.folder(name)
       if (!folder) throw new ViewerError(409, "REVIEW_NOT_AVAILABLE", "No checkpoint is available")
       const run = await this.load(folder, parsed.data.runId)
       if (run.project !== name)
         throw new ViewerError(409, "CHECKPOINT_CHANGED", "Checkpoint does not match the project")
-      return decideResearch(this.base, name, folder, run, parsed.data)
+      return decideCheckpoint(this.base, name, folder, run, parsed.data)
     })
   }
   async close() {

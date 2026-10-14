@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react"
-import type { ResearchReview, ReviewRequest } from "../application/project-reviews.js"
+import type { CheckpointReview, ReviewRequest } from "../application/project-reviews.js"
 import type { ProjectRun, ResumeRequest } from "../application/project-runs.js"
+import type { ResearchBundle } from "../core/schemas.js"
+const STAGE_LABELS = {
+  research: "Research",
+  claims: "Claims",
+  hypotheses: "Hypotheses",
+  factCheck: "Fact check",
+  epistemicPreparation: "Epistemic preparation",
+  reasoningContext: "Reasoning context",
+  narrative: "Narrative",
+  visual: "Visual plan",
+  selfCheck: "Self-check",
+} as const
 type Props = {
   resume: (input: ResumeRequest) => Promise<ProjectRun>
   resumed: (run: ProjectRun) => void
-  load: () => Promise<ResearchReview>
-  decide: (input: ReviewRequest) => Promise<NonNullable<ResearchReview["decision"]>>
+  load: () => Promise<CheckpointReview>
+  decide: (input: ReviewRequest) => Promise<NonNullable<CheckpointReview["decision"]>>
   changed: () => void
 }
 function sourceLink(url: string | undefined) {
@@ -17,8 +29,8 @@ function sourceLink(url: string | undefined) {
     return null
   }
 }
-export function ResearchReviewPanel(props: Props) {
-  const [review, setReview] = useState<ResearchReview | null>(null)
+export function CheckpointReviewPanel(props: Props) {
+  const [review, setReview] = useState<CheckpointReview | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -31,6 +43,8 @@ export function ResearchReviewPanel(props: Props) {
   const alive = useRef(true)
   const reasonField = useRef<HTMLTextAreaElement>(null)
   const feedback = useRef<HTMLParagraphElement>(null)
+  const label = review ? STAGE_LABELS[review.stage] : "Checkpoint"
+  const research = review?.stage === "research" ? (review.artifact as ResearchBundle) : null
   useEffect(() => {
     alive.current = true
     let cancelled = false
@@ -45,9 +59,7 @@ export function ResearchReviewPanel(props: Props) {
       })
       .catch((failure: unknown) => {
         if (!cancelled)
-          setError(
-            failure instanceof Error ? failure.message : "Unable to load Research checkpoint",
-          )
+          setError(failure instanceof Error ? failure.message : "Unable to load checkpoint")
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -137,7 +149,7 @@ export function ResearchReviewPanel(props: Props) {
       aria-labelledby="review-heading"
       aria-busy={loading || busy}
     >
-      <h3 id="review-heading">Research review</h3>
+      <h3 id="review-heading">{label} review</h3>
       {loading && <p role="status">Loading saved candidate…</p>}
       {error && (
         <p id="review-error" className="notice bad" role="alert">
@@ -148,66 +160,94 @@ export function ResearchReviewPanel(props: Props) {
         <>
           <p ref={feedback} tabIndex={-1} role="status">
             {review.decision
-              ? `Recorded decision: Research ${review.decision.action === "APPROVE" ? "approved" : "rejected"}. Execution remains stopped.`
+              ? `Recorded decision: ${label} ${review.decision.action === "APPROVE" ? "approved" : "rejected"}. Execution remains stopped.`
               : review.explanation}
           </p>
           {review.decision && <p>{review.explanation}</p>}
           {review.decision?.reason && <p>Decision note: {review.decision.reason}</p>}
-          <h4>{review.artifact.question}</h4>
-          <p>{review.artifact.summary}</p>
-          <p>
-            {review.artifact.sources.length} sources · {review.artifact.evidence.length} evidence
-            items · {review.artifact.claims.length} claims · {review.artifact.gaps.length} research
-            gaps
-          </p>
-          <details>
-            <summary>Sources and evidence</summary>
+          {review.stage === "selfCheck" && (
+            <p className="notice">
+              Approving this checkpoint records acceptance of the saved audit. It does not turn FAIL
+              or UNKNOWN into PASS, resolve findings, or authorize publication.
+            </p>
+          )}
+          {!research && (
             <ul>
-              {review.artifact.sources.map((source) => {
-                const href = sourceLink(source.url)
-                return (
-                  <li key={source.id}>
-                    <strong>
-                      {source.id} · {source.title}
-                    </strong>
-                    {href && (
-                      <p>
-                        <a href={href} target="_blank" rel="noopener noreferrer">
-                          Open source
-                        </a>
-                      </p>
-                    )}
-                    {source.author && <p>{source.author}</p>}
-                    {source.notes && <p>{source.notes}</p>}
-                  </li>
-                )
-              })}
-            </ul>
-            <ul>
-              {review.artifact.evidence.map((evidence) => (
-                <li key={evidence.id}>
-                  <strong>
-                    {evidence.id} · Source: {evidence.sourceId}
-                  </strong>
-                  <p>{evidence.statement}</p>
-                  {evidence.excerpt && <blockquote>{evidence.excerpt}</blockquote>}
-                  <p>
-                    Supports: {evidence.supportsClaims.join(", ") || "None"} · Contradicts:{" "}
-                    {evidence.contradictsClaims.join(", ") || "None"}
-                  </p>
-                </li>
+              {review.summary.map((text, index) => (
+                <li key={index}>{text}</li>
               ))}
             </ul>
+          )}
+          {research && (
+            <>
+              <h4>{research.question}</h4>
+              <p>{research.summary}</p>
+              <p>
+                {research.sources.length} sources · {research.evidence.length} evidence items ·{" "}
+                {research.claims.length} claims · {research.gaps.length} research gaps
+              </p>
+              <details>
+                <summary>Sources and evidence</summary>
+                <ul>
+                  {research.sources.map((source) => {
+                    const href = sourceLink(source.url)
+                    return (
+                      <li key={source.id}>
+                        <strong>
+                          {source.id} · {source.title}
+                        </strong>
+                        {href && (
+                          <p>
+                            <a href={href} target="_blank" rel="noopener noreferrer">
+                              Open source
+                            </a>
+                          </p>
+                        )}
+                        {source.author && <p>{source.author}</p>}
+                        {source.notes && <p>{source.notes}</p>}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <ul>
+                  {research.evidence.map((evidence) => (
+                    <li key={evidence.id}>
+                      <strong>
+                        {evidence.id} · Source: {evidence.sourceId}
+                      </strong>
+                      <p>{evidence.statement}</p>
+                      {evidence.excerpt && <blockquote>{evidence.excerpt}</blockquote>}
+                      <p>
+                        Supports: {evidence.supportsClaims.join(", ") || "None"} · Contradicts:{" "}
+                        {evidence.contradictsClaims.join(", ") || "None"}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </>
+          )}
+          <details>
+            <summary>Full saved candidate</summary>
+            <pre>{JSON.stringify(review.artifact, null, 2)}</pre>
           </details>
           <details>
-            <summary>Full saved candidate, claims and gaps</summary>
-            <pre>{JSON.stringify(review.artifact, null, 2)}</pre>
+            <summary>Upstream materials ({Object.keys(review.upstream).length})</summary>
+            {Object.entries(review.upstream).map(([stage, artifact]) => (
+              <details key={stage}>
+                <summary>{stage}</summary>
+                <pre>{JSON.stringify(artifact, null, 2)}</pre>
+              </details>
+            ))}
+            {!Object.keys(review.upstream).length && (
+              <p>This is the first pipeline stage; no upstream artifacts are consumed.</p>
+            )}
           </details>
           <details>
             <summary>Checkpoint identity and dependencies</summary>
             <p>
-              Research has no upstream pipeline artifacts. Project inputs and the reviewed snapshot
-              are checked at decision time.
+              The candidate, upstream human approvals, project inputs and reviewed snapshot are
+              checked at decision time.
             </p>
             <p>
               Displayed candidate: <code>{review.artifactSignature}</code>
@@ -226,11 +266,16 @@ export function ResearchReviewPanel(props: Props) {
           {review.decision?.action === "APPROVE" && (
             <div>
               <p>
-                Resume continues from this approved Research candidate and stops at the next
+                Resume continues from this approved {label} candidate and stops at the next
                 unapproved checkpoint. Generation may use paid services. The server checks that your
                 approval is still current.
               </p>
-              <button type="button" disabled={busy || loading} onClick={resume}>
+              <button
+                className="button-primary"
+                type="button"
+                disabled={busy || loading || !review.unchanged}
+                onClick={resume}
+              >
                 {busy && continuation.current
                   ? "Resuming..."
                   : continuation.current
@@ -276,11 +321,16 @@ export function ResearchReviewPanel(props: Props) {
                   </button>
                 ) : (
                   <>
-                    <button type="button" disabled={busy} onClick={() => decide("APPROVE")}>
-                      Approve Research
+                    <button
+                      className="button-primary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => decide("APPROVE")}
+                    >
+                      Approve {label}
                     </button>
                     <button type="button" disabled={busy} onClick={() => decide("REJECT")}>
-                      Reject Research
+                      Reject {label}
                     </button>
                   </>
                 )}

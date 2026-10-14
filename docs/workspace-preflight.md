@@ -1,5 +1,27 @@
 # Workspace pre-flight
 
+## Warm palette extension — 2026-10-14
+
+PASS: user reference neutrals applied to shared CSS tokens, forms, navigation, feedback, nodes, grid and SVG edges/arrowheads. #FE5000 is the primary action fill and selection accent; links use a dark orange variant. Main Chrome viewer on 4311 was rebuilt/restarted and its computed paper/accent/node/edge values match the new tokens. Overview and Flow screenshots were saved and visually inspected; Fit and section navigation work. Keyboard Tab showed the dark #3E332C focus ring. Captured browser warning/error logs were empty.
+
+PASS: calculated WCAG luminance ratios: body text/paper 10.35:1, secondary text/paper 5.66:1, links/paper 4.81:1, dark text/orange action 5.03:1, input boundary/surface 5.73:1, node boundary/surface 3.83:1, error text/error surface 6.35:1 and warning text/warning surface 6.85:1. Sidebar secondary text uses the darker focus token rather than the lower-contrast general secondary token. Hover/active actions retain dark text on bright orange variants. Status labels remain visible independently of color.
+
+PASS: source/test types, full ESLint, production build, affected-file formatting and git diff whitespace check. Relevant existing suites: 56 tests / 7 files PASS (workspace, creation, run/review/checkpoint workflow and Flow). No new tests for token substitutions, dependencies, fonts, raster assets or animation. Browser bundle 279973 bytes, +112 over the preceding 279861 build. Initial sandbox builds/tests could not read an ancestor directory; the same checks passed with normal filesystem access.
+
+PASS (DOM measurements): actual widths 319 and 3441 CSS pixels without page horizontal overflow; Flow widths approximately 265 and 3121 pixels respectively, temporary viewport reset. Native Retina DPR 2/3, touch and screen reader remain UNVERIFIED. Narrow full-page screenshot output was scaled/cropped inconsistently by the capture tool and is not used to certify mobile appearance. Main wide screenshots are the visual evidence. No project content, commit or push changed by this palette extension.
+
+## v0.13.4 complete checkpoints — 2026-10-14
+
+PASS: full regression 643 tests / 58 files, source/test TypeScript checks, full ESLint, Prettier and production build. Eleven new workflow tests cover all nine mock stages through explicit review/resume and final export, consumed dependency signatures, upstream human approval drift, candidate byte preservation, rejection, interrupted decision reconciliation, cross-stage receipt forgery, malformed preparation and protected HTTP review routes. Every SelfCheck check ID/status is included in the readable summary. The full suite ran with two workers after concurrent load exposed existing default-timeout failures; runtime admission and approval requirements were not relaxed.
+
+PASS (Chrome, main viewer on 4311, clearly named MOCK fixtures): Claims empty-reason validation with textarea focus and aria-invalid, keyboard rejection with retained candidate and no Resume, persisted SelfCheck approval across server/page restart, visible WARN and individual UNKNOWN findings, keyboard final Resume with disabled busy state and completion focus. The final child log contains explicit continuation and pipeline completion only, with no generation events. Refresh loads the production manifest; Script and Shots show saved materials. Approval does not alter the audit Warning. The final mock continuation reuses saved candidates; paid provider execution was not tested. Existing user project content was not changed. Two MOCK projects are retained for inspection. Captured warning/error console log was empty.
+
+PASS (layout and visual inspection): actual measured CSS viewports 319x900, 480x1350, 2560x1080 and 3441x1440 without document horizontal overflow; review width capped at approximately 940 CSS pixels, large raw JSON scrolls locally. Temporary viewport overrides were reset. Chrome screenshot capture now works; Claims rejection and Completed with retained Warning were saved and visually inspected. This supersedes the earlier screenshot/runtime blockers for this increment. Agent-created navigation still returns ERR_BLOCKED_BY_CLIENT; claiming the manually opened SCAD tab works. The cause of that navigation restriction is not established.
+
+PASS: no new dependencies, remote fonts, assets or animation. Final browser bundle 279861 bytes versus 278914 baseline (+947, within 10KB). The unrelated untracked brandsans demo is excluded from SCAD lint/format traversal; its files were not changed.
+
+UNVERIFIED: Retina DPR 2/3 and native hardware (Chrome measured DPR approximately 0.667), screen reader, real mobile/touch, live providers, field performance and actual power-loss recovery. Mobile widths are measured CSS sizes, not proof of native Retina behavior. Lost-response UI retry and every intermediate stage's rendered browser interaction were not exercised live; durable replay and all-stage completion are covered by automated tests. No commit or push performed for this increment.
+
 - PASS: production build, source/test TypeScript checks, full lint and formatting (plus affected-file rechecks after focus/recovery changes).
 - PASS: existing suite 572 tests / 49 files; new workspace state suite 4 tests separately. Loading, error recovery markup, empty real data, safe project/error text verified by server rendering tests.
 - PASS: browser real project list, empty search, clear search with focus returning to input, opening existing project and returning home. No captured console errors.

@@ -485,7 +485,7 @@ function Flow({
                 markerHeight="6"
                 orient="auto-start-reverse"
               >
-                <polygon points="0,0 10,5 0,10" fill="#728f7d" />
+                <polygon points="0,0 10,5 0,10" fill="var(--edge)" />
               </marker>
             </defs>
             {store.graph.edges.map((_, index) => (

@@ -19,7 +19,11 @@ import {
   type ResearchBundle,
 } from "../core/schemas.js"
 import { ReasoningContextSchema, ProductionManifestSchema } from "../core/production/schemas.js"
-import { HypothesisVersionSchema, IntelligenceEnvelopeSchema } from "../core/reasoning/schemas.js"
+import {
+  HypothesisVersionSchema,
+  IntelligenceEnvelopeSchema,
+  ReasoningBudgetSchema,
+} from "../core/reasoning/schemas.js"
 import {
   loadReasoningCursor,
   readReasoningCycles,
@@ -36,6 +40,7 @@ import type {
   SelfCheckProductionReport,
 } from "../core/production/types.js"
 import { TraceService } from "../core/trace.js"
+import type { PipelineStage } from "../core/pipeline.js"
 
 const KEYS = [
   "research",
@@ -102,6 +107,51 @@ export class ViewerError extends Error {
   ) {
     super(message)
   }
+}
+const EpistemicCheckpointSchema = z
+  .object({
+    report: ResearchIntelligenceReportSchema.nullable(),
+    inputSignature: z.string().nullable(),
+    fresh: z.boolean(),
+    referenceDate: z.string().min(1),
+    budget: ReasoningBudgetSchema.nullable(),
+    inputs: z
+      .object({
+        research: z.unknown(),
+        versions: z.array(HypothesisVersionSchema),
+        referenceDate: z.string().min(1),
+        budget: ReasoningBudgetSchema,
+        limits: z.record(z.number()).optional(),
+      })
+      .passthrough()
+      .nullable(),
+    resolution: z
+      .object({
+        report: ResearchIntelligenceReportSchema.nullable(),
+        signature: z.string().nullable(),
+        fresh: z.boolean(),
+        source: z.enum(["envelope", "raw-legacy", "absent"]),
+        staleReason: z
+          .enum(["signature-mismatch", "unverifiable-inputs", "invalid-report"])
+          .nullable(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+/** Validate without rebuilding raw content covered by signatures. */
+export function validatePipelineArtifact(stage: PipelineStage, value: unknown): void {
+  const schema =
+    stage === "research"
+      ? ResearchBundleSchema
+      : stage === "epistemicPreparation"
+        ? EpistemicCheckpointSchema
+        : SCHEMAS[stage]
+  if (!schema?.safeParse(value).success)
+    throw new ViewerError(
+      409,
+      "CANDIDATE_INVALID",
+      "A valid saved " + stage + " candidate is required",
+    )
 }
 /** project is a validated, resolved directory. Unknown files also fix the question. */
 export async function canChangeProjectQuestion(project: string): Promise<boolean> {

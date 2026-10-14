@@ -119,7 +119,7 @@ export function CreateProjectForm({
       </p>
       {busy && <p role="status">Creating project…</p>}
       <div className="project-actions">
-        <button type="submit" disabled={busy}>
+        <button className="button-primary" type="submit" disabled={busy}>
           {submitted.current && error ? "Retry creation" : "Create project"}
         </button>
         <button type="button" disabled={busy} onClick={cancel}>

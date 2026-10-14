@@ -1,5 +1,8 @@
 # Curated document, kept out of Prettier's auto-formatting.
 AGENTS.md
 
+# External font package and its standalone demo are not SCAD sources.
+brandsans/**
+
 # Design specs: hand-aligned tables and lists are part of the document.
 docs/*.md
