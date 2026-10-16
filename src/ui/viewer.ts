@@ -1,4 +1,5 @@
 import { mountProjectRun } from "./project-run-panel.js"
+import { mountRunHistory } from "./run-history-panel.js"
 import { mountProjectExport } from "./project-export-panel.js"
 import { mountProjectDetails } from "./project-details-form.js"
 import type { CreateProjectInput } from "./create-project-form.js"
@@ -31,6 +32,7 @@ let crumbs: string[] = [],
 let disposeRun: (() => void) | null = null
 let disposeDetails: (() => void) | null = null
 let disposeExport: (() => void) | null = null
+let disposeHistory: (() => void) | null = null
 let disposeHome: (() => void) | null = null
 let projectListTicket = 0
 let trashItems: Array<{ id: string; project: string }> = []
@@ -203,6 +205,8 @@ function closeTrace() {
   crumbs = []
 }
 async function openProject(id: string) {
+  disposeHistory?.()
+  disposeHistory = null
   disposeExport?.()
   disposeExport = null
   projectListTicket++
@@ -250,6 +254,8 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  disposeHistory?.()
+  disposeHistory = null
   disposeExport?.()
   disposeExport = null
   disposeRun?.()
@@ -298,8 +304,8 @@ function render() {
       "Review saved findings. A disposition does not certify that an issue is resolved.",
     ],
     history: [
-      "Production history",
-      "Compare saved revisions and inspect the decisions behind them.",
+      "Project history",
+      "Inspect browser runs, recorded decisions and saved production revisions.",
     ],
     flow: [
       "Evidence Flow",
@@ -654,6 +660,18 @@ function snippet(value: unknown) {
 }
 function history() {
   if (!view) return
+  const current = view
+  const runHistory = element("div")
+  content.append(runHistory)
+  disposeHistory = mountRunHistory(runHistory, {
+    load: (cursor) =>
+      api(
+        "/api/projects/" +
+          encodeURIComponent(current.id) +
+          "/runs/history" +
+          (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""),
+      ),
+  })
   content.append(
     element("h2", "Production revision history"),
     message(
@@ -879,6 +897,8 @@ refresh.addEventListener("click", () => {
   else void loadProjects()
 })
 function showHome(state: WorkspaceState) {
+  disposeHistory?.()
+  disposeHistory = null
   disposeExport?.()
   disposeExport = null
   disposeRun?.()

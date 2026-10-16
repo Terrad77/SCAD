@@ -1,5 +1,23 @@
 # Workspace pre-flight
 
+## v0.13.6 Chrome follow-up — 2026-10-16
+
+PASS (Chrome on main 4311): after restarting the stopped viewer, inspected ten MOCK run records, SelfCheck approval note, parent ID, candidate/dependency/input signatures and four saved events. Enter opens History and native disclosures. Explicit refresh returns focus to the status paragraph with the dark focus outline. Read-only e2e-v06 navigation shows the empty browser-history explanation; returning to the MOCK project restores its ten entries. Screenshot scad-run-history.png was saved and visually inspected. No project content or approval changed; generation was not started. Captured warning/error log empty.
+
+PASS (actual DOM measurements): 319x900 CSS pixels, history approximately 265px wide and refresh control approximately 44px high, document scrollWidth 297px; 3441x1440, history approximately 940px wide, scrollWidth 3418px. No document horizontal overflow. Temporary overrides reset. DPR remains approximately 0.667; Retina DPR 2/3, touch and screen reader remain unverified. Live older-page/error/retry and late-response UI paths remain unverified; their backend contracts have automated coverage. This closes the earlier Chrome-connection/visual-history blocker within the stated scope.
+
+Connection fix: Chrome request diagnostics demonstrated a genuine user-triggered top-level navigation with Sec-Fetch-Site cross-site, mode navigate, destination document and user ?1. The server previously rejected this harmless workspace entry. A narrow exception now allows only GET / with those navigation headers, while retaining Host and Origin checks. Cross-site API requests, non-navigation cross-site requests and all write/approval protections remain denied. Focused history/server suites pass 17 tests / 2 files, including the root entry and cross-site API checks. Final full regression: 657 tests / 60 files PASS; source/test types, full lint, full formatting and build PASS. The fixed page opens in Chrome. No commit or push performed.
+
+## v0.13.6 browser run history — 2026-10-15
+
+PASS: full regression 657 tests / 60 files, source/test TypeScript, full ESLint, full Prettier and production build. Seven new history tests cover stable cursor pagination across insertion, raw journal byte preservation, continuation/decision retention, active ownership versus another instance, missing parents, corrupt/cross-project records, empty history, invalid cursors/latest pointers, file-count bounds, local HTTP session/Origin/method protection and restart persistence. No new execution, approval or write path was added.
+
+PASS (live API, main 4311): updated server returns HTTP 200 for the existing explicitly MOCK SelfCheck project. Ten retained runs are shown; the newest is COMPLETED, nine have parent links and nine have recorded decisions. This check reads journals without starting generation, changing project content or treating fixture decisions as real editorial authority. Owner/admission fields are omitted from history responses.
+
+PASS: browser bundle 287971 bytes versus 282967 baseline (+5004), within 10KB. Warm tokens, native disclosures, wrapped identifiers, 940px reading width and 44px controls reused. No dependency, animation, raster or font added. Existing server/main project data retained; unrelated brandsans folder untouched.
+
+UNVERIFIED: live rendered timeline, disclosure/keyboard focus, responsive mobile/ultrawide layout, UI errors/pagination/late-response navigation and screenshot visual review for this increment. Chrome is absent from the available MCP browser inventory (only in-app and MCP Apps browsers are connected); the user was asked to connect Chrome with main SCAD on 4311. No fallback browser or secondary port was used. Earlier Chrome checks do not validate the new timeline. Retina DPR 2/3, real touch/screen reader, field performance and power-loss recovery remain unverified. The browser pre-flight item stays open. No commit/push performed.
+
 ## v0.13.5 local review exports — 2026-10-14
 
 PASS: full regression 650 tests / 59 files; source/test TypeScript, full ESLint, full Prettier and production build. Seven export tests cover exact raw UTF-8 preservation without writes, knowledge/reference retention, missing/invalid material, stale requests, incomplete publication refusal, preserved FAIL, input bounds, session/Origin/method protection and stale HTTP requests. Initial test fixture used an invalid constraint treatment; corrected to the real schema without relaxing validation. Root formatting needed normal filesystem access because the sandbox could not traverse an ignored brandsans subdirectory. No brandsans file changed.

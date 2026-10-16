@@ -56,6 +56,16 @@ const Run = z
   .strict()
 export type ProjectRun = z.infer<typeof Run>
 export type RunView = { run: ProjectRun | null; owned: boolean; provider: string }
+export type RunHistoryEntry = Omit<ProjectRun, "owner" | "expectedVersion"> & {
+  latest: boolean
+  execution: "ACTIVE" | "UNVERIFIED" | "STOPPED"
+  parentMissing: boolean
+}
+export type RunHistoryPage = {
+  entries: RunHistoryEntry[]
+  nextCursor: string | null
+  total: number
+}
 export type RunExecutor = (
   options: Pick<
     DocumentaryOptions,
@@ -152,6 +162,95 @@ export class ProjectRuns {
       run,
       owned: run?.owner === this.owner && this.active.has(run.id),
       provider: process.env.LLM_PROVIDER ?? "opencode",
+    }
+  }
+  /** Bounded historical inspection, never a review/resume authority or recovery action. */
+  async history(name: string, cursor?: string): Promise<RunHistoryPage> {
+    if (cursor !== undefined && !z.string().uuid().safeParse(cursor).success)
+      throw new ViewerError(400, "INVALID_CURSOR", "Refresh browser run history")
+    await new ProjectReader(this.base).read(name)
+    const folder = await this.folder(name)
+    if (!folder) {
+      if (cursor) throw new ViewerError(409, "HISTORY_CHANGED", "Run history changed. Refresh it.")
+      return { entries: [], nextCursor: null, total: 0 }
+    }
+    const latest = await read(join(folder, "latest.json"))
+    const names = await readdir(folder)
+    const ids = names
+      .filter(
+        (file) => file.endsWith(".json") && z.string().uuid().safeParse(file.slice(0, -5)).success,
+      )
+      .map((file) => file.slice(0, -5))
+    if (ids.length > 1000 || names.length > 5000)
+      throw new ViewerError(
+        413,
+        "HISTORY_TOO_LARGE",
+        "Run history exceeds the inspection limit; operator archiving is required",
+      )
+    const runs: ProjectRun[] = []
+    let bytes = 0
+    for (const id of ids) {
+      const run = await this.load(folder, id)
+      if (run.project !== name)
+        throw new ViewerError(
+          409,
+          "RUN_JOURNAL_INVALID",
+          "Run journal project identity does not match",
+        )
+      if (
+        !Number.isFinite(Date.parse(run.startedAt)) ||
+        !Number.isFinite(Date.parse(run.updatedAt))
+      )
+        throw new ViewerError(
+          409,
+          "RUN_JOURNAL_INVALID",
+          "Run journal dates need operator inspection",
+        )
+      bytes += Buffer.byteLength(JSON.stringify(run))
+      if (bytes > 16 * 1024 * 1024)
+        throw new ViewerError(
+          413,
+          "HISTORY_TOO_LARGE",
+          "Run history exceeds the 16 MB inspection limit",
+        )
+      runs.push(run)
+    }
+    if (
+      latest !== (await read(join(folder, "latest.json"))) ||
+      (runs.length > 0 && !runs.some((run) => run.id === latest)) ||
+      (latest !== null && !runs.some((run) => run.id === latest))
+    )
+      throw new ViewerError(
+        409,
+        "HISTORY_CHANGED",
+        "Run history changed or its latest pointer is invalid. Refresh or inspect the journal.",
+      )
+    runs.sort(
+      (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id),
+    )
+    const index = cursor ? runs.findIndex((run) => run.id === cursor) : -1
+    if (cursor && index < 0)
+      throw new ViewerError(409, "HISTORY_CHANGED", "Run history changed. Refresh it.")
+    const page = runs.slice(index + 1, index + 11)
+    return {
+      total: runs.length,
+      nextCursor: index + 11 < runs.length ? page.at(-1)!.id : null,
+      entries: page.map((run) => {
+        const { owner: _owner, expectedVersion: _version, ...entry } = run
+        return {
+          ...entry,
+          latest: run.id === latest,
+          execution:
+            run.state === "RUNNING"
+              ? run.owner === this.owner && this.active.has(run.id)
+                ? "ACTIVE"
+                : "UNVERIFIED"
+              : "STOPPED",
+          parentMissing: Boolean(
+            run.resumeOf && !runs.some((parent) => parent.id === run.resumeOf),
+          ),
+        }
+      }),
     }
   }
   async start(name: string, input: unknown): Promise<ProjectRun> {

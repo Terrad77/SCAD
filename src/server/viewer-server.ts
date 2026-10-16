@@ -51,10 +51,16 @@ export async function startViewer(options: {
         "Content-Security-Policy",
         "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
       )
+      const workspaceNavigation =
+        req.method === "GET" &&
+        req.url === "/" &&
+        req.headers["sec-fetch-mode"] === "navigate" &&
+        req.headers["sec-fetch-dest"] === "document" &&
+        req.headers["sec-fetch-user"] === "?1"
       if (
         req.headers.host !== authority ||
         (req.headers.origin && req.headers.origin !== `http://${authority}`) ||
-        req.headers["sec-fetch-site"] === "cross-site"
+        (req.headers["sec-fetch-site"] === "cross-site" && !workspaceNavigation)
       )
         throw new ViewerError(
           403,
@@ -138,6 +144,20 @@ export async function startViewer(options: {
         return
       }
       const runRoute = /^\/api\/projects\/([^/]+)\/runs$/.exec(url.pathname)
+      const historyRoute = /^\/api\/projects\/([^/]+)\/runs\/history$/.exec(url.pathname)
+      if (historyRoute) {
+        let name: string
+        try {
+          name = decodeURIComponent(historyRoute[1]!)
+        } catch {
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+        }
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(
+          JSON.stringify(await runs.history(name, url.searchParams.get("cursor") ?? undefined)),
+        )
+        return
+      }
       if (runRoute) {
         let name: string
         try {
