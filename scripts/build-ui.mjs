@@ -1,7 +1,9 @@
 import { build } from "esbuild"
 await build({
   entryPoints: ["src/ui/viewer.ts"],
-  outfile: "dist/ui/viewer.js",
+  outdir: "dist/ui",
+  splitting: true,
+  chunkNames: "chunks/[name]-[hash]",
   bundle: true,
   format: "esm",
   platform: "browser",

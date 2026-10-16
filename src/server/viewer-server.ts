@@ -1,4 +1,9 @@
 import { ProjectRuns } from "../application/project-runs.js"
+import {
+  readPublication,
+  changePublication,
+  exportPublication,
+} from "../application/publication-packages.js"
 import { updateProjectDetails } from "../application/project-details.js"
 import { createProject } from "../application/project-create.js"
 import { ProjectTrash } from "../application/project-trash.js"
@@ -8,7 +13,7 @@ import { readFile } from "node:fs/promises"
 import { ProjectReader, ViewerError } from "../application/project-reader.js"
 import { viewerHtml } from "../ui/html.js"
 
-async function readProjectBody(req: IncomingMessage): Promise<unknown> {
+async function readProjectBody(req: IncomingMessage, limit = 32768): Promise<unknown> {
   if (req.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
     throw new ViewerError(415, "JSON_REQUIRED", "Project operations require JSON")
   const chunks: Buffer[] = []
@@ -16,7 +21,7 @@ async function readProjectBody(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
     size += bytes.length
-    if (size > 32768) throw new ViewerError(413, "BODY_TOO_LARGE", "Project details are too large")
+    if (size > limit) throw new ViewerError(413, "BODY_TOO_LARGE", "Project details are too large")
     chunks.push(bytes)
   }
   try {
@@ -77,7 +82,7 @@ export async function startViewer(options: {
         !(req.method === "POST" && url.pathname === "/api/projects") &&
         !(
           req.method === "POST" &&
-          /^\/api\/projects\/[^/]+\/(?:settings|runs|review|resume)$/.test(url.pathname)
+          /^\/api\/projects\/[^/]+\/(?:settings|runs|review|resume|publication)$/.test(url.pathname)
         ) &&
         !(req.method === "DELETE" && /^\/api\/projects\/[^/]+$/.test(url.pathname)) &&
         !(req.method === "POST" && /^\/api\/trash\/[a-f0-9-]{36}\/restore$/.test(url.pathname))
@@ -95,6 +100,16 @@ export async function startViewer(options: {
         res.end(await readFile(new URL("../ui/viewer.js", import.meta.url)))
         return
       }
+      if (/^\/chunks\/[A-Za-z0-9_-]+\.js$/.test(url.pathname) && req.method === "GET") {
+        try {
+          const script = await readFile(new URL("../ui" + url.pathname, import.meta.url))
+          res.setHeader("Content-Type", "text/javascript; charset=utf-8")
+          res.end(script)
+          return
+        } catch {
+          throw new ViewerError(404, "NOT_FOUND", "Script chunk not found")
+        }
+      }
       if (!url.pathname.startsWith("/api/"))
         throw new ViewerError(404, "NOT_FOUND", "Page not found")
       const supplied = req.headers.authorization?.replace(/^Bearer /, "") ?? ""
@@ -103,6 +118,38 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
+      const publicationRoute = /^\/api\/projects\/([^/]+)\/publication(\/export)?$/.exec(
+        url.pathname,
+      )
+      if (publicationRoute) {
+        let name: string
+        try {
+          name = decodeURIComponent(publicationRoute[1]!)
+        } catch {
+          throw new ViewerError(400, "INVALID_PROJECT", "Invalid project identifier")
+        }
+        if (req.method === "POST" && req.headers.origin !== `http://${authority}`)
+          throw new ViewerError(
+            403,
+            "ORIGIN_REQUIRED",
+            "Publication changes require a local browser origin",
+          )
+        const result = publicationRoute[2]
+          ? await exportPublication(
+              options.dataDir,
+              name,
+              url.searchParams.get("id") ?? "",
+              url.searchParams.get("revision") ?? "",
+              url.searchParams.get("version") ?? "",
+              url.searchParams.get("format") ?? "",
+            )
+          : req.method === "GET"
+            ? await readPublication(options.dataDir, name)
+            : await changePublication(options.dataDir, name, await readProjectBody(req, 128 * 1024))
+        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.end(JSON.stringify(result))
+        return
+      }
       const resumeRoute = /^\/api\/projects\/([^/]+)\/resume$/.exec(url.pathname)
       if (resumeRoute) {
         if (req.method !== "POST")

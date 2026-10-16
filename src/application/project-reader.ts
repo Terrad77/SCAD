@@ -500,6 +500,30 @@ export class ProjectReader {
       })),
     }
   }
+  async publicationSnapshot(name: string) {
+    const view = await this.read(name)
+    const project = await this.directory(name)
+    const approved = await this.file(project, join(project, "memory", "approved.json"))
+    const files = await this.stable(name)
+    const again = await this.file(project, join(project, "memory", "approved.json"))
+    if (version(files) !== view.readVersion || JSON.stringify(approved) !== JSON.stringify(again))
+      throw new ViewerError(
+        409,
+        "VIEW_CHANGED",
+        "Project changed while reading publication sources. Refresh.",
+      )
+    if (
+      approved.error ||
+      Object.values(files).reduce((size, file) => size + Buffer.byteLength(file.raw ?? ""), 0) >
+        2 * 1024 * 1024
+    )
+      throw new ViewerError(
+        413,
+        "PUBLICATION_SOURCE_UNAVAILABLE",
+        "Publication source is unreadable or exceeds the 2 MB input limit",
+      )
+    return { view, files: { ...files, approved } }
+  }
   async export(name: string, expectedVersion: string, format: string) {
     if (!/^[a-f0-9]{64}$/.test(expectedVersion) || !["script", "snapshot"].includes(format))
       throw new ViewerError(

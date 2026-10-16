@@ -33,6 +33,8 @@ let disposeRun: (() => void) | null = null
 let disposeDetails: (() => void) | null = null
 let disposeExport: (() => void) | null = null
 let disposeHistory: (() => void) | null = null
+let disposePublication: (() => void) | null = null
+let publicationGeneration = 0
 let disposeHome: (() => void) | null = null
 let projectListTicket = 0
 let trashItems: Array<{ id: string; project: string }> = []
@@ -205,6 +207,9 @@ function closeTrace() {
   crumbs = []
 }
 async function openProject(id: string) {
+  publicationGeneration++
+  disposePublication?.()
+  disposePublication = null
   disposeHistory?.()
   disposeHistory = null
   disposeExport?.()
@@ -254,6 +259,9 @@ async function openProject(id: string) {
 }
 function render() {
   if (!view) return
+  publicationGeneration++
+  disposePublication?.()
+  disposePublication = null
   disposeHistory?.()
   disposeHistory = null
   disposeExport?.()
@@ -276,6 +284,7 @@ function render() {
     ["shots", "Shots"],
     ["audit", "Audit and issues"],
     ["history", "History"],
+    ["publication", "Publication"],
     ["flow", "Flow"],
   ])
     tabs.append(
@@ -307,6 +316,10 @@ function render() {
       "Project history",
       "Inspect browser runs, recorded decisions and saved production revisions.",
     ],
+    publication: [
+      "Publication packaging",
+      "Draft and review local release materials for a selected completed production version.",
+    ],
     flow: [
       "Evidence Flow",
       "Explore the connections between shots, sentences, claims and sources.",
@@ -325,6 +338,43 @@ function render() {
   if (tab === "shots") shots()
   if (tab === "audit") audit()
   if (tab === "history") history()
+  if (tab === "publication") {
+    const current = view
+    const panel = element("div")
+    content.append(panel)
+    const path = "/api/projects/" + encodeURIComponent(current.id) + "/publication"
+    const ticket = publicationGeneration
+    const loading = element("p", "Loading publication editor…")
+    loading.setAttribute("role", "status")
+    panel.append(loading)
+    void import("./publication-panel.js")
+      .then(({ mountPublication }) => {
+        if (ticket !== publicationGeneration || view !== current || tab !== "publication") return
+        panel.replaceChildren()
+        disposePublication = mountPublication(panel, {
+          load: () => api(path),
+          change: (request) => api(path, "POST", request),
+          export: (id, revision, version, format) =>
+            api(
+              path +
+                "/export?id=" +
+                encodeURIComponent(id) +
+                "&revision=" +
+                revision +
+                "&version=" +
+                encodeURIComponent(version) +
+                "&format=" +
+                format,
+            ),
+        })
+      })
+      .catch(() => {
+        if (ticket !== publicationGeneration || view !== current || tab !== "publication") return
+        const error = message("Unable to load the publication editor. Refresh or retry.", true)
+        error.setAttribute("role", "alert")
+        panel.replaceChildren(error, button("Retry editor loading", render))
+      })
+  }
   if (tab === "flow") flow()
 }
 function overview() {
@@ -897,6 +947,9 @@ refresh.addEventListener("click", () => {
   else void loadProjects()
 })
 function showHome(state: WorkspaceState) {
+  publicationGeneration++
+  disposePublication?.()
+  disposePublication = null
   disposeHistory?.()
   disposeHistory = null
   disposeExport?.()
