@@ -1,5 +1,15 @@
 # Workspace pre-flight
 
+## v0.14.1 draft safety and display follow-up — 2026-10-19
+
+PASS: final full regression 667 tests / 61 files; production build, source/test TypeScript, full lint and formatting. The optional publication module is 15410 raw bytes (+1974); the initial module budget is unchanged. No new dependency, generation or approval/write route.
+
+PASS (Chrome main 4311, explicitly MOCK SelfCheck project): unsaved audience text triggers the in-page departure dialog; Keep editing and Escape retain exact text. Confirmed discard opens Script and returning to Publication reloads saved v2. An unsaved decision note separately guards My workspace. Refresh and another project are intercepted without losing text on cancel. Explicit reload discards local edits; clean navigation subsequently works without a dialog. Initial focus is Keep editing; forward/backward Tab cycling remains inside; Escape returns focus to the navigation trigger. No console warnings/errors captured. All 31 original metadata/memory/output file hashes unchanged; no new package, approval or generation was written during this follow-up.
+
+PASS (rendered screenshots and measured emulation): Publication at 390x844 CSS pixels / observed DPR approximately 3, 2560x1080 / observed DPR approximately 2; Flow Fit at 3441x1440 / observed DPR approximately 3. No page horizontal overflow; readable editor width approximately 940px on ultrawide. Native text, inputs, wrapping, nodes and SVG connections inspected in captured renders. Departure dialog at 390px fits within the viewport (approximately 332px wide), with stacked controls and inert background. Screenshots retained in C:/Users/terlo/Documents/Codex/scad-v0141-verification/. Screenshot capture worked after bringing the controlled tab to the foreground. All temporary device metric overrides cleared.
+
+UNVERIFIED: physical Retina hardware, touch and screen-reader use; native browser close/reload warning and departure during deliberately slow mutation/transport failure. The beforeunload guard is implemented but not claimed as interactively verified: the first native confirm experiment stalled MCP focus commands and was replaced with a controllable HTML dialog for in-app navigation. Browser-dependent close warnings cannot guarantee recovery after process termination. Emulation and screenshots close the former display-tool blocker within the stated scope; they do not certify physical display sharpness or field performance. No commit/push in this follow-up.
+
 ## v0.14 publication packages — 2026-10-16
 
 PASS: final full regression 667 tests / 61 files; source/test TypeScript, full ESLint, full Prettier and production build. Ten new publication tests cover completed human-approved source selection, immutable source preservation, independent UNKNOWN findings, content-bound consent, new-version invalidation, historical export qualification, drift without regeneration, exact replay, conflicting request identities, shared writer ownership, corrupted signatures, unsafe paths and authenticated local HTTP contracts.

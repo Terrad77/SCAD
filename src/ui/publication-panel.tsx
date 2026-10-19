@@ -129,6 +129,9 @@ export function PublicationPanel(props: Props) {
   const [reason, setReason] = useState("")
   const [acknowledged, setAcknowledged] = useState(false)
   const [exportRevision, setExportRevision] = useState(1)
+  const [pendingNavigation, setPendingNavigation] = useState<HTMLElement | null>(null)
+  const leaveDialog = useRef<HTMLDialogElement>(null)
+  const allowNavigation = useRef(false)
   const baseline = useRef("")
   const active = useRef(false)
   const alive = useRef(true)
@@ -140,6 +143,50 @@ export function PublicationPanel(props: Props) {
   const source = selected?.source ?? state?.sources.find((item) => item.id === sourceId)
   const dirty = !!document && JSON.stringify(document) !== baseline.current
   const disabled = busy || request.current !== null
+  useEffect(() => {
+    const dialog = leaveDialog.current
+    if (!pendingNavigation || !dialog) return
+    dialog.showModal()
+    return () => dialog.close()
+  }, [pendingNavigation])
+  useEffect(() => {
+    if (!dirty && !reason.trim() && request.current === null && !busy) return
+    const hasUnsavedWork = () => dirty || !!reason.trim() || request.current !== null
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedWork() && !active.current) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    const beforeNavigation = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const navigation = event.target.closest(
+        "#tabs button, #projects button, #workspace-home, #refresh",
+      )
+      if (!(navigation instanceof HTMLElement)) return
+      if (allowNavigation.current) {
+        allowNavigation.current = false
+        return
+      }
+      if (active.current) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        setMessage("Wait for the current package operation to finish before leaving.")
+        feedback.current?.focus()
+        return
+      }
+      if (hasUnsavedWork()) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        setPendingNavigation(navigation)
+      }
+    }
+    window.addEventListener("beforeunload", beforeUnload)
+    window.document.addEventListener("click", beforeNavigation, true)
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload)
+      window.document.removeEventListener("click", beforeNavigation, true)
+    }
+  }, [dirty, reason, busy])
   const adopt = (next: PublicationState, id?: string) => {
     const item =
       id === undefined ? next.packages.at(-1) : next.packages.find((item) => item.packageId === id)
@@ -295,6 +342,49 @@ export function PublicationPanel(props: Props) {
   }
   return (
     <section className="publication-editor" aria-labelledby="publication-heading" aria-busy={busy}>
+      <dialog
+        ref={leaveDialog}
+        aria-labelledby="publication-leave-heading"
+        aria-describedby="publication-leave-description"
+        onCancel={() => setPendingNavigation(null)}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return
+          const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>("button")
+          const first = buttons[0]
+          const last = buttons[buttons.length - 1]
+          if (event.shiftKey && window.document.activeElement === first) {
+            event.preventDefault()
+            last?.focus()
+          } else if (!event.shiftKey && window.document.activeElement === last) {
+            event.preventDefault()
+            first?.focus()
+          }
+        }}
+      >
+        <h2 id="publication-leave-heading">Leave publication packaging?</h2>
+        <p id="publication-leave-description">
+          Unsaved text and decision notes will be discarded. An unconfirmed operation may already be
+          saved; reopen the package to check its state.
+        </p>
+        <div className="project-actions">
+          <button type="button" autoFocus onClick={() => setPendingNavigation(null)}>
+            Keep editing
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const target = pendingNavigation
+              setPendingNavigation(null)
+              if (target?.isConnected) {
+                allowNavigation.current = true
+                target.click()
+              }
+            }}
+          >
+            Discard edits and leave
+          </button>
+        </div>
+      </dialog>
       <h2 id="publication-heading">Local publication package</h2>
       <p>
         Prepare editorial packaging for a completed production version. This is a local review tool;

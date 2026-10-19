@@ -1,5 +1,7 @@
 # Workspace design system
 
+Publication draft protection (v0.14.1): use a native modal HTML dialog for departure from unsaved editorial text or a decision note. Existing warm surfaces, dark borders, 44px controls and stacked mobile actions apply; no motion or new dependency. Keep editing receives initial focus, Tab/Shift+Tab cycle inside, Escape cancels and focus returns to the navigation trigger. Discard explicitly continues the requested navigation. Active package operations block workspace navigation; a conditional beforeunload handler requests the browser's own close/reload warning. The guard is owned and cleaned up by the editor. Initial JS remains unchanged; optional editor grows from 13436 to 15410 raw bytes (+1974).
+
 Intent: a local documentary author's home screen for finding saved projects and entering existing read-only inspection tools. No account or cloud integration is implied.
 
 Foundation: installed React/TypeScript with owned native HTML controls and existing CSS tokens. No new dependencies or fonts. System text provides clear reading rhythm; project titles use 18px, page introduction 30px/25px. Dense project rows support comparison rather than decorative metric cards.
