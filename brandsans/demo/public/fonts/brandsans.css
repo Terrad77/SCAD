@@ -1,0 +1,18 @@
+@font-face {
+  font-family: "BrandSans";
+  src:
+    url("./BrandSans-Regular.woff2") format("woff2"),
+    url("./BrandSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "BrandSans";
+  src:
+    url("./BrandSans-Medium.woff2") format("woff2"),
+    url("./BrandSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

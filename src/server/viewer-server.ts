@@ -54,7 +54,7 @@ export async function startViewer(options: {
       res.setHeader("Referrer-Policy", "no-referrer")
       res.setHeader(
         "Content-Security-Policy",
-        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
       )
       const workspaceNavigation =
         req.method === "GET" &&
@@ -108,6 +108,29 @@ export async function startViewer(options: {
           return
         } catch {
           throw new ViewerError(404, "NOT_FOUND", "Script chunk not found")
+        }
+      }
+      const fontFiles: Record<string, string> = {
+        "/fonts/brandsans/BrandSans-Regular.woff2": "font/woff2",
+        "/fonts/brandsans/BrandSans-Medium.woff2": "font/woff2",
+        "/fonts/brandsans/OFL.txt": "text/plain; charset=utf-8",
+      }
+      const fontMime = fontFiles[url.pathname]
+      if (fontMime && req.method === "GET") {
+        try {
+          const font = await readFile(new URL("../ui" + url.pathname, import.meta.url)).catch(
+            async (error: unknown) => {
+              if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT")
+                throw error
+              // Source-mode viewer/tests use public assets; a built distribution carries its copy.
+              return readFile(new URL("../../public" + url.pathname, import.meta.url))
+            },
+          )
+          res.setHeader("Content-Type", fontMime)
+          res.end(font)
+          return
+        } catch {
+          throw new ViewerError(404, "NOT_FOUND", "Font asset not found; rebuild the viewer")
         }
       }
       if (!url.pathname.startsWith("/api/"))

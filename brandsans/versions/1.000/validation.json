@@ -1,0 +1,87 @@
+{
+  "status": "PASS",
+  "files": [
+    {
+      "file": "BrandSans-Regular.ttf",
+      "bytes": 51772,
+      "sha256": "b0ece2f4be9c49726b9f2c068c321262eeeaf8f038710620e5c8ea08dca57968",
+      "mappedCodepoints": 244,
+      "weight": 400,
+      "glyphBoundsY": [
+        -227,
+        897
+      ]
+    },
+    {
+      "file": "BrandSans-Regular.woff2",
+      "bytes": 14004,
+      "sha256": "55b83e99d71cf594568e8f5f2de669b28bbd87783c3f83d0727b519cf31c69a1",
+      "mappedCodepoints": 244,
+      "weight": 400,
+      "glyphBoundsY": [
+        -227,
+        897
+      ]
+    },
+    {
+      "file": "BrandSans-Medium.ttf",
+      "bytes": 50544,
+      "sha256": "4c4b15825b7e3674810f3285a0cca7a51e5eb4abef8b07736702a8317cf52514",
+      "mappedCodepoints": 244,
+      "weight": 500,
+      "glyphBoundsY": [
+        -238,
+        908
+      ]
+    },
+    {
+      "file": "BrandSans-Medium.woff2",
+      "bytes": 14284,
+      "sha256": "e0958e4dabbf1aba332c05e0f4de7fc2686106a6b50ab7399aceeec1284fccd2",
+      "mappedCodepoints": 244,
+      "weight": 500,
+      "glyphBoundsY": [
+        -238,
+        908
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "weight": "Regular",
+      "cmap": "PASS",
+      "nonblankGlyphs": "PASS",
+      "bounds": "PASS",
+      "roundtrip": "PASS",
+      "shapingAllCodepoints": "PASS",
+      "kerningOnOff": "PASS",
+      "tabularNumerals": "PASS"
+    },
+    {
+      "weight": "Medium",
+      "cmap": "PASS",
+      "nonblankGlyphs": "PASS",
+      "bounds": "PASS",
+      "roundtrip": "PASS",
+      "shapingAllCodepoints": "PASS",
+      "kerningOnOff": "PASS",
+      "tabularNumerals": "PASS"
+    }
+  ],
+  "currencySymbols": [
+    "$",
+    "¢",
+    "£",
+    "¤",
+    "¥",
+    "₩",
+    "₪",
+    "₫",
+    "€",
+    "₴",
+    "₹",
+    "₺",
+    "₽",
+    "₿"
+  ]
+}

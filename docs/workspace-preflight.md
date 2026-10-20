@@ -1,5 +1,19 @@
 # Workspace pre-flight
 
+## BrandSans 1.200 Cyrillic refresh — 2026-10-20
+
+PASS: the user's updated public WOFF2 files already matched brandsans/fonts/. Rebuilt dist and compared all three locations byte-for-byte. Both weights report Version 1.200 with 321 codepoints. Independent FontTools decoding checks all 76 Russian/Ukrainian/Belarusian letters plus U+2116, non-.notdef glyph names and nonempty outlines. Total WOFF2 bytes: 34144. The system Python 3.14 could not load the package's cp312 Brotli extension; the bundled compatible runtime completed the actual WOFF2 check successfully. No generator execution or source report regeneration.
+
+PASS: production build and focused viewer HTTP suite (11 tests) verify the updated byte delivery, MIME, license, CSP and access boundaries. Chrome main 4311 renders a mixed Russian/Ukrainian/Belarusian sample including Ё/ё, Є/є, І/і, Ї/ї, Ґ/ґ, Ў/ў and №. CSS.getPlatformFontsForNode on the native textarea renderer reports only custom BrandSans-Regular (78 glyph uses), rather than a fallback. Screenshot: C:/Users/terlo/Documents/Codex/scad-brandsans-verification/scad-brandsans-cyrillic.jpg. Draft form cancelled without creating a project. Warning/error log empty; English interface retained. Medium Cyrillic outlines are binary-verified; separate browser Medium Cyrillic shaping, physical display and cross-browser checks remain unverified. Existing user-staged source/demo changes left intact; no staging, commit or push performed.
+
+## BrandSans local integration — 2026-10-19
+
+PASS: build, source/test types, full lint/format and 668 tests / 61 files. Added HTTP coverage verifies exact original WOFF2 bytes/signatures, MIME, local-only CSP, license delivery, method/Origin denial and unknown/traversal asset paths. The two WOFF2 files total 27552 bytes and match the user's BrandSans 1.100 source files. Build copies assets into dist; font source project remains unchanged and no unrelated demo/generator files are exposed.
+
+PASS (Chrome main 4311): CSS.getPlatformFontsForNode reports custom BrandSans-Medium on the workspace heading and BrandSans-Regular on paragraph text. Body font-synthesis is none. Inspected rendered workspace on 1440x960 CSS / DPR approximately 2 and 321x900 / DPR approximately 3; inspected loaded Publication at narrow width and 2560x1080 / DPR approximately 2. No page horizontal overflow, publication reading width approximately 940px on ultrawide, navigation and long titles wrap. Console warning/error capture empty. Screenshots retained in C:/Users/terlo/Documents/Codex/scad-brandsans-verification/. Device metric overrides cleared, server running on 4311. No generation, approval or project content mutations.
+
+UNVERIFIED: physical Retina, screen reader, cross-browser/field typography metrics and font-network-failure interaction. Cyrillic and other absent glyphs intentionally use the configured system fallback; no Cyrillic BrandSans coverage is claimed. Original font-package reports are provenance, not a substitute for SCAD browser checks. No commit/push in this integration pass.
+
 ## v0.14.1 draft safety and display follow-up — 2026-10-19
 
 PASS: final full regression 667 tests / 61 files; production build, source/test TypeScript, full lint and formatting. The optional publication module is 15410 raw bytes (+1974); the initial module budget is unchanged. No new dependency, generation or approval/write route.

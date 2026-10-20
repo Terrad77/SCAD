@@ -1,0 +1,49 @@
+{
+  "method": "WCAG sRGB relative luminance, explicit CSS tokens",
+  "checks": [
+    {
+      "role": "body and glyph buttons",
+      "foreground": "#20211f",
+      "background": "#eeeeea",
+      "ratio": 13.9,
+      "normalTextPass": true
+    },
+    {
+      "role": "secondary text",
+      "foreground": "#5c5e57",
+      "background": "#eeeeea",
+      "ratio": 5.65,
+      "normalTextPass": true
+    },
+    {
+      "role": "dark specimen text",
+      "foreground": "#eeeeea",
+      "background": "#242620",
+      "ratio": 13.15,
+      "normalTextPass": true
+    },
+    {
+      "role": "dark specimen labels",
+      "foreground": "#c5c9bb",
+      "background": "#242620",
+      "ratio": 9.06,
+      "normalTextPass": true
+    },
+    {
+      "role": "button hover glyphs",
+      "foreground": "#20211f",
+      "background": "#d9dcd1",
+      "ratio": 11.63,
+      "normalTextPass": true
+    },
+    {
+      "role": "accent hover links",
+      "foreground": "#b42a18",
+      "background": "#eeeeea",
+      "ratio": 5.5,
+      "normalTextPass": true
+    }
+  ],
+  "axeManualReview": "Symbol-only buttons use the verified body/glyph token pair. Decorative Aa has aria-hidden=true; guide background spans paper and #c4c7bc. The foreground remains dark ink at .85 parent opacity. Automated color-contrast incomplete is retained in browser report.",
+  "limits": "No screen reader or physical-device audit; no certification claimed."
+}

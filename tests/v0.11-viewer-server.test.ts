@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { request } from "node:http"
@@ -20,6 +20,32 @@ afterEach(async () => {
 })
 const headers = () => ({ Authorization: `Bearer ${token}` })
 describe("v0.11 local viewer API", () => {
+  it("serves only the bundled BrandSans webfonts and license with local-only protections", async () => {
+    const page = await fetch(viewer.url)
+    expect(page.headers.get("content-security-policy")).toContain("font-src 'self'")
+    for (const filename of ["BrandSans-Regular.woff2", "BrandSans-Medium.woff2"]) {
+      const path = "/fonts/brandsans/" + filename
+      const response = await fetch(viewer.url + path)
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("font/woff2")
+      const bytes = Buffer.from(await response.arrayBuffer())
+      expect(bytes.subarray(0, 4).toString("ascii")).toBe("wOF2")
+      expect(bytes).toEqual(await readFile(new URL("../public" + path, import.meta.url)))
+      expect(
+        (await fetch(viewer.url + path, { headers: { Origin: "https://evil.example" } })).status,
+      ).toBe(403)
+      expect((await fetch(viewer.url + path, { method: "POST" })).status).toBe(405)
+    }
+    expect(await (await fetch(viewer.url + "/fonts/brandsans/OFL.txt")).text()).toContain(
+      "SIL OPEN FONT LICENSE",
+    )
+    for (const path of [
+      "/fonts/brandsans/BrandSans-Regular.ttf",
+      "/fonts/brandsans/README.md",
+      "/fonts/brandsans/%2e%2e%2f%2e%2e%2f.env",
+    ])
+      expect((await fetch(viewer.url + path)).status).toBe(404)
+  })
   it("binds loopback, serves protected HTML and reads projects without exposing secrets", async () => {
     expect(viewer.server.address()).toMatchObject({ address: "127.0.0.1" })
     const page = await fetch(viewer.url)

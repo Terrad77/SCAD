@@ -1,0 +1,290 @@
+"""BrandSans: original parametric geometry; no imported font outlines."""
+from pathlib import Path
+import sys, math, unicodedata, json, hashlib
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / '.tools'))
+from shapely.geometry import LineString, Polygon, box
+from shapely.ops import unary_union
+from shapely.affinity import translate, scale
+from shapely.geometry.polygon import orient
+from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+from fontTools.ttLib import TTFont, newTable
+from fontTools.agl import UV2AGL
+
+EXTRA = 'ıŁłŒœŠšŸŽžƒˆˇ˘˙˚˛˜˝–—‘’‚“”„†‡•…‰‹›⁄€™₽₴₹₩₺₫₪₿←↑→↓−≠≤≥'
+CODES = sorted(set(range(32,127)) | set(range(160,256)) | {ord(c) for c in EXTRA})
+KERN = {'AV':-70,'AW':-55,'AY':-65,'AT':-42,'VA':-70,'WA':-55,'YA':-65,'TA':-42,'To':-60,'Ta':-60,'Te':-60,'Ty':-35,'Yo':-60,'Ya':-60,'Ye':-60,'Vo':-40,'Va':-40,'Wo':-30,'Wa':-30,'LT':-35,'LV':-50,'LY':-55,'FA':-40,'Pa':-25,'P.':-60,'T.':-65,'V.':-65,'W.':-50,'Y.':-70,'r.':-30,'f)':15,'ff':12,'fi':8,'fl':8}
+def name(cp): return UV2AGL.get(cp, f'uni{cp:04X}')
+
+class Designer:
+ def __init__(self, thickness): self.t = thickness; self.cache={}
+ def line(self, pts, t=None): return LineString(pts).buffer((t or self.t)/2, cap_style=2, join_style=2, mitre_limit=2)
+ def dot(self,x,y,r=None): return box(x-(r or self.t/2),y-(r or self.t/2),x+(r or self.t/2),y+(r or self.t/2))
+ def oval(self,x,y,w,h,start=0,end=360):
+  pts=[]
+  for i in range(max(3,round(abs(end-start)/4))+1):
+   a=math.radians(start+(end-start)*i/max(3,round(abs(end-start)/4)))
+   # A superellipse gives broad shoulders, flatter crowns and continuous round corners.
+   co,si=math.cos(a),math.sin(a)
+   pts.append((x+w/2+math.copysign(abs(co)**(2/2.5),co)*w/2,y+h/2+math.copysign(abs(si)**(2/2.5),si)*h/2))
+  return self.line(pts)
+ def glyph(self,c):
+  if c in self.cache: return self.cache[c]
+  result=self.draw(c); self.cache[c]=result; return result
+ def draw(self,c):
+  L=self.line; O=self.oval; D=self.dot; U=lambda *p:unary_union(p); t=self.t
+  # Centerlines: baseline 35, cap 665, x-height 485, lowercase ascender 705.
+  if c in ' \u00a0': return Polygon(),300
+  if c=='\u00ad': return Polygon(),0
+  if c=='A': return U(L([(65,35),(296,665),(324,665),(555,35)]),L([(145,245),(475,245)])),620
+  if c=='B': return U(L([(85,35),(85,665),(340,665)]),O(105,350,390,315,-90,90),O(105,35,420,315,-90,90),L([(85,350),(300,350)]),L([(85,35),(315,35)])),610
+  if c in 'CDG':
+   if c=='D': return U(L([(85,35),(85,665),(290,665)]),O(80,35,455,630,-90,90),L([(85,35),(307,35)])),625
+   s=O(75,35,480,630,42,318)
+   if c=='G': s=U(s,L([(350,315),(555,315),(555,90)]))
+   return s,630
+  if c in 'EF':
+   p=[L([(85,35),(85,665),(535,665)]),L([(85,350),(445,350)])]
+   if c=='E': p.append(L([(85,35),(535,35)]))
+   return U(*p),610
+  if c=='H': return U(L([(85,35),(85,665)]),L([(535,35),(535,665)]),L([(85,350),(535,350)])),620
+  if c=='I': return L([(115,35),(115,665)]),230
+  if c=='J': return U(L([(455,665),(455,215)]),O(85,35,370,360,180,360)),550
+  if c=='K': return U(L([(85,35),(85,665)]),L([(535,665),(85,270)]),L([(275,435),(555,35)])),625
+  if c=='L': return L([(85,665),(85,35),(515,35)]),585
+  if c=='M': return L([(85,35),(85,665),(345,245),(605,665),(605,35)]),690
+  if c=='N': return L([(85,35),(85,665),(535,35),(535,665)]),620
+  if c in 'OQ':
+   s=O(75,25,480,650)
+   if c=='Q': s=U(s,L([(385,165),(595,-65)]))
+   return s,640 if c=='Q' else 630
+  if c in 'PR':
+   s=U(L([(85,35),(85,665),(330,665)]),O(100,335,420,330,-90,90),L([(85,335),(310,335)]))
+   if c=='R': s=U(s,L([(300,335),(555,35)]))
+   return s,620
+  if c=='S': return U(O(80,345,450,320,38,270),O(80,35,450,310,-142,90)),610
+  if c=='T': return U(L([(40,665),(580,665)]),L([(310,665),(310,35)])),620
+  if c in 'UV':
+   if c=='U': return U(L([(85,665),(85,245)]),O(85,35,450,420,180,360),L([(535,245),(535,665)])),620
+   return L([(60,665),(295,35),(325,35),(560,665)]),620
+  if c=='W': return L([(55,665),(205,35),(235,35),(370,475),(505,35),(535,35),(685,665)]),740
+  if c=='X': return U(L([(65,665),(555,35)]),L([(555,665),(65,35)])),620
+  if c=='Y': return U(L([(55,665),(310,350),(565,665)]),L([(310,350),(310,35)])),620
+  if c=='Z': return L([(65,665),(555,665),(65,35),(555,35)]),620
+  if c in 'abdgopq':
+   s=O(75,25,400,470)
+   if c in 'ad': s=U(s,L([(475,35),(475,485 if c=='a' else 705)]))
+   if c=='b': s=U(s,L([(75,35),(75,705)]))
+   if c=='p': s=U(s,L([(75,-195),(75,485)]))
+   if c=='q': s=U(s,L([(475,-195),(475,485)]))
+   if c=='g': s=U(s,L([(475,485),(475,-45)]),O(75,-195,400,300,190,360))
+   return s,550
+  if c=='c': return O(75,25,400,470,40,320),550
+  if c=='e': return U(O(75,25,400,470,0,320),L([(75,260),(475,260)])),550
+  if c in 'hmn':
+   s=U(L([(80,35),(80,705 if c=='h' else 485)]),O(80,155,360,340,0,180),L([(440,325),(440,35)]))
+   if c=='m': s=U(s,O(440,155,360,340,0,180),L([(800,325),(800,35)]))
+   return s,880 if c=='m' else 520
+  if c in 'ij':
+   s=U(L([(100,485),(100,35 if c=='i' else -90)]),D(100,650))
+   if c=='j': s=U(s,O(-65,-195,165,210,195,360))
+   return s,205
+  if c=='k': return U(L([(80,35),(80,705)]),L([(455,485),(80,200)]),L([(245,325),(475,35)])),545
+  if c=='l': return L([(100,705),(100,100),(135,35),(200,35)]),265
+  if c=='r': return U(L([(80,35),(80,485)]),O(80,195,300,300,40,180)),440
+  if c=='s': return U(O(75,260,360,235,35,270),O(75,25,360,235,-145,90)),510
+  if c in 'ft':
+   if c=='f': s=U(L([(160,35),(160,555)]),O(160,405,260,300,50,180),L([(45,485),(370,485)]))
+   else: s=U(L([(155,665),(155,150)]),O(155,35,230,230,180,310),L([(40,485),(345,485)]))
+   return s,425
+  if c=='u': return U(L([(80,485),(80,195)]),O(80,25,360,340,180,360),L([(440,35),(440,485)])),520
+  if c=='v': return L([(50,485),(245,35),(265,35),(460,485)]),510
+  if c=='w': return L([(50,485),(185,35),(205,35),(335,360),(465,35),(485,35),(620,485)]),670
+  if c=='x': return U(L([(60,485),(460,35)]),L([(460,485),(60,35)])),520
+  if c=='y': return U(L([(55,485),(255,35)]),L([(465,485),(200,-125),(125,-195),(55,-195)])),520
+  if c=='z': return L([(65,485),(455,485),(65,35),(455,35)]),520
+  if c.isascii() and c.isdigit():
+   if c=='0': s=O(80,25,430,650)
+   elif c=='1': s=U(L([(115,525),(310,665),(310,35)]),L([(135,35),(485,35)]))
+   elif c=='2': s=U(O(80,345,430,330,0,175),L([(510,510),(480,360),(80,35),(515,35)]))
+   elif c=='3': s=U(O(80,350,430,325,-90,140),O(80,25,430,325,-140,90),L([(260,350),(315,350)]))
+   elif c=='4': s=U(L([(415,35),(415,665),(70,215),(545,215)]))
+   elif c=='5': s=U(L([(510,665),(100,665),(100,365)]),O(80,25,430,350,-145,110),L([(100,365),(300,375)]))
+   elif c=='6': s=U(O(80,25,430,360),O(80,25,430,650,75,220))
+   elif c=='7': s=L([(65,665),(525,665),(220,35)])
+   elif c=='8': s=U(O(105,350,380,325),O(80,25,430,325))
+   else: s=U(O(80,315,430,360),O(80,25,430,650,-105,40))
+   return s,590
+  if c in '.,:;':
+   s=D(110,40)
+   if c in ',;': s=U(s,L([(125,40),(65,-95)],t*.65))
+   if c in ':;': s=U(s,D(110,420))
+   return s,225
+  if c in '!¡':
+   s=U(L([(120,665),(120,190)]),D(120,40))
+   if c=='¡': s=scale(s,1,-1,origin=(120,350))
+   return s,240
+  if c in '?¿':
+   s=U(O(80,365,350,300,0,170),L([(430,515),(420,390),(255,250),(255,185)]),D(255,40))
+   if c=='¿': s=scale(s,1,-1,origin=(255,350))
+   return s,510
+  if c in '-–—−_': return L([(50,-80 if c=='_' else 290),(800 if c=='—' else 550 if c=='–' else 380,-80 if c=='_' else 290)]),850 if c=='—' else 600 if c=='–' else 430
+  if c in '/\\⁄': return L([(70,-70),(420,740)] if c!='\\' else [(70,740),(420,-70)]),490
+  if c in '()[]{}':
+   s=L([(240,730),(125,585),(90,350),(125,115),(240,-30)]) if c in '()' else L([(250,730),(100,730),(100,-30),(250,-30)])
+   if c in '{}': s=L([(270,730),(175,730),(130,650),(130,430),(65,350),(130,270),(130,50),(175,-30),(270,-30)])
+   if c in ')]}': s=scale(s,-1,1,origin=(170,350))
+   return s,340
+  if c in "'\"‘’‚“”„‹›«»":
+   if c in '‹›«»':
+    s=L([(235,470),(85,300),(235,130)])
+    if c in '«»': s=U(s,translate(s,190,0))
+    if c in '›»': s=scale(s,-1,1,origin=(240,300))
+    return s,520 if c in '«»' else 330
+   low=c in '‚„'; curly=c not in "'\""; y=160 if low else 700
+   s=L([(130,y),(100,y-150)])
+   if curly: s=U(s,L([(100,y-150),(155,y-185)],t*.7))
+   if c in '‘“': s=scale(s,-1,-1,origin=(128,y-90))
+   if c in '\"“”„': s=U(s,translate(s,170,0))
+   return s,390 if c in '\"“”„' else 220
+  if c in '+±=≠≤≥<>':
+   if c in '<>≤≥': s=L([(460,560),(85,350),(460,140)]); s=scale(s,-1,1,origin=(273,350)) if c in '>≥' else s
+   else: s=L([(70,350 if c in '+±' else 445),(490,350 if c in '+±' else 445)])
+   if c in '+±': s=U(s,L([(280,140),(280,560)]))
+   if c in '=≠': s=U(s,L([(70,245),(490,245)]))
+   if c=='≠': s=U(s,L([(160,105),(400,585)]))
+   if c in '±≤≥': s=U(s,L([(70,0),(490,0)]))
+   return s,560
+  if c in '*†‡':
+   s=L([(250,600),(250,120)])
+   if c=='*': s=U(s,L([(80,220),(420,500)]),L([(80,500),(420,220)]))
+   else: s=U(s,L([(80,470),(420,470)]))
+   if c=='‡': s=U(s,L([(80,280),(420,280)]))
+   return s,500
+  if c=='#': return U(L([(190,35),(300,665)]),L([(370,35),(480,665)]),L([(70,230),(550,230)]),L([(100,470),(580,470)])),650
+  if c in '|¦': return (L([(110,-100),(110,740)]) if c=='|' else U(L([(110,-100),(110,260)]),L([(110,420),(110,740)]))),220
+  if c in '~˜': return L([(65,310),(155,365),(245,365),(340,280),(430,280),(510,335)]),575
+  if c in '`´ˆ^ˇ˘˙˚˝¨¯˛¸':
+   if c in '`´': s=L([(180,840),(300,740)] if c=='`' else [(180,740),(300,840)],t*.8)
+   elif c in '^ˆˇ˘':
+    pts=[(120,745),(250,835),(380,745)]
+    if c in 'ˇ˘': pts=[(120,835),(250,745),(380,835)]
+    s=L(pts,t*.75)
+   elif c in '¨˙': s=U(D(175,790,26),D(325,790,26)) if c=='¨' else D(250,790,26)
+   elif c=='˚': s=O(190,745,120,120)
+   elif c=='˝': s=U(L([(130,740),(200,840)],t*.7),L([(290,740),(360,840)],t*.7))
+   elif c=='¯': s=L([(100,790),(400,790)],t*.7)
+   else: s=L([(260,-15),(200,-110),(300,-150)],t*.65)
+   return s,500
+  if c in '•·': return D(150,300,65 if c=='•' else 34),300
+  if c=='…': return U(D(100,40),D(300,40),D(500,40)),600
+  if c=='°': return O(80,470,200,200),360
+  if c in '×÷':
+   s=U(L([(90,150),(450,550)]),L([(90,550),(450,150)])) if c=='×' else U(L([(70,350),(490,350)]),D(280,150),D(280,550))
+   return s,560
+  if c in '%‰':
+   s=U(O(50,450,160,220),O(370,25,160,220),L([(80,25),(500,670)]))
+   if c=='‰': s=U(s,O(610,25,160,220))
+   return s,820 if c=='‰' else 580
+  if c=='&': return U(O(80,25,400,340,25,320),O(140,350,260,310,-55,255),L([(180,390),(535,35)]),L([(385,35),(535,300)])),610
+  if c=='@': return U(O(65,25,650,650,5,330),O(245,185,280,330),L([(525,505),(525,180),(630,180),(715,300)])),790
+  if c in '$¢£¤¥€₽₴₹₩₺₫₪₿':
+   if c=='¤': return U(O(130,180,300,340),L([(60,110),(150,210)]),L([(410,490),(500,590)]),L([(60,590),(150,490)]),L([(410,210),(500,110)])),570
+   if c in '$₴': s,w=self.glyph('S'); s=U(s,L([(305,-65),(305,765)])) if c=='$' else U(s,L([(40,300),(570,300)],t*.7),L([(40,420),(570,420)],t*.7));return s,w
+   if c in '€¢': s,w=self.glyph('C'); s=U(s,L([(35,275),(420,275)],t*.7),L([(35,420),(420,420)],t*.7)) if c=='€' else U(scale(s,.8,.8,origin=(0,0)),L([(250,-40),(330,650)],t*.7)); return s,w
+   if c=='£': return U(L([(90,35),(530,35)]),L([(170,35),(170,520)]),O(170,375,320,290,10,180),L([(65,300),(410,300)])),600
+   if c in '¥₩': s,w=self.glyph('Y' if c=='¥' else 'W');return U(s,L([(50,260),(w-50,260)],t*.7),L([(50,375),(w-50,375)],t*.7)),w
+   if c=='₽': s,w=self.glyph('P'); return U(s,L([(40,205),(390,205)],t*.75)),w
+   if c=='₹': return U(L([(65,665),(535,665)]),O(75,350,380,315,-90,90),L([(75,350),(480,35)]),L([(65,505),(535,505)])),600
+   if c=='₺': return U(L([(170,705),(170,35),(330,35),(505,160)]),L([(65,315),(380,470)]),L([(65,435),(380,590)])),575
+   if c=='₫': s,w=self.glyph('d');return U(s,L([(300,620),(550,620)],t*.75),L([(75,-80),(490,-80)],t*.75)),w+35
+   if c=='₪': return U(L([(80,35),(80,665),(345,665),(345,240)]),L([(240,465),(240,35),(505,35),(505,665)])),590
+   s,w=self.glyph('B');return U(s,L([(210,-45),(210,745)],t*.7),L([(340,-45),(340,745)],t*.7)),w
+  if c in '←↑→↓':
+   s=U(L([(65,350),(605,350)]),L([(410,550),(610,350),(410,150)]))
+   if c=='←': s=scale(s,-1,1,origin=(335,350))
+   if c in '↑↓':
+    from shapely.affinity import rotate
+    s=rotate(s,90 if c=='↑' else -90,origin=(335,350))
+   return s,670
+  if c in '©®':
+   s,w=self.glyph('C' if c=='©' else 'R');return U(O(50,10,650,680),translate(scale(s,.52,.52,origin=(0,0)),210,170)),750
+  if c=='™':
+   s,w=self.glyph('T');m,mw=self.glyph('M');return U(translate(scale(s,.45,.45,origin=(0,0)),20,390),translate(scale(m,.45,.45,origin=(0,0)),310,390)),650
+  if c=='¬': return L([(65,420),(500,420),(500,180)]),570
+  if c=='¶': return U(O(75,350,300,315,90,270),L([(225,665),(500,665),(500,-100)]),L([(350,665),(350,-100)])),580
+  if c=='§': s,w=self.glyph('S');return U(translate(scale(s,.8,.8,origin=(0,0)),40,200),translate(scale(s,.8,.8,origin=(0,0)),40,-120)),570
+  if c=='µ': s,w=self.glyph('u');return U(s,L([(80,200),(80,-195)])),w
+  if c in 'ªº':
+   s,w=self.glyph('a' if c=='ª' else 'o'); return translate(scale(s,.6,.6,origin=(0,0)),0,370),round(w*.6)
+  if c in '¹²³': s,w=self.glyph({'¹':'1','²':'2','³':'3'}[c]);return translate(scale(s,.6,.6,origin=(0,0)),0,310),round(w*.6)
+  if c in '¼½¾':
+   a,b={'¼':('1','4'),'½':('1','2'),'¾':('3','4')}[c];sa,wa=self.glyph(a);sb,wb=self.glyph(b)
+   return U(translate(scale(sa,.52,.52,origin=(0,0)),0,330),translate(scale(sb,.52,.52,origin=(0,0)),350,0),L([(155,35),(510,665)],t*.7)),700
+  if c in 'ÆæŒœ':
+   a,b=('A','E') if c=='Æ' else ('a','e') if c=='æ' else ('O','E') if c=='Œ' else ('o','e');sa,wa=self.glyph(a);sb,wb=self.glyph(b)
+   return U(scale(sa,.8,1,origin=(0,0)),translate(scale(sb,.8,1,origin=(0,0)),wa*.65,0)),round((wa+wb)*.75)
+  if c in 'ØøŁł':
+   s,w=self.glyph({'Ø':'O','ø':'o','Ł':'L','ł':'l'}[c]); return U(s,L([(40,120),(w-40,550 if c.isupper() else 420)],t*.7)),w
+  if c in 'ÐðÞþßıƒ':
+   if c=='ı': return L([(100,485),(100,35)]),205
+   if c=='ƒ': s,w=self.glyph('f');return U(s,L([(160,120),(120,-180)])),w
+   if c in 'Ðð': s,w=self.glyph('D' if c=='Ð' else 'd');return U(s,L([(20,350 if c=='Ð' else 635),(330,350 if c=='Ð' else 635)],t*.75)),w
+   if c in 'Þþ': s,w=self.glyph('P' if c=='Þ' else 'p');return U(s,L([(85,35),(85,745)])),w
+   return U(L([(80,35),(80,520)]),O(80,360,320,320,-70,180),O(120,35,340,330,-100,80)),540
+  decomp=unicodedata.normalize('NFD',c)
+  if len(decomp)==2 and decomp[1] in '\u0300\u0301\u0302\u0303\u0308\u030a\u0327\u030c':
+   base,mark=decomp;s,w=self.glyph('ı' if base=='i' else base);mc={'\u0300':'`','\u0301':'´','\u0302':'ˆ','\u0303':'˜','\u0308':'¨','\u030a':'˚','\u0327':'¸','\u030c':'ˇ'}[mark];ms,mw=self.glyph(mc)
+   if mark=='\u0303': ms=translate(scale(ms,.62,.7,origin=(0,0)),70,560)
+   return U(s,translate(ms,(w-500)/2,0 if mark=='\u0327' or base.isupper() else -190)),w
+  raise ValueError(f'No original drawing for {c!r} U+{ord(c):04X}')
+
+def build(style,weight,thickness):
+ d=Designer(thickness); glyphs={};metrics={};cmap={cp:name(cp) for cp in CODES}
+ shapes={'.notdef':(box(70,0,500,700).difference(box(130,60,440,640)),570)}
+ shapes.update({name(cp):d.glyph(chr(cp)) for cp in CODES})
+ for n,(shape,width) in shapes.items():
+  pen=TTGlyphPen(None)
+  if not shape.is_empty:
+   shape=shape.simplify(.32,preserve_topology=True)
+   for p in ([shape] if shape.geom_type=='Polygon' else shape.geoms):
+    p=orient(p,sign=-1)
+    for ring in [p.exterior,*p.interiors]:
+     pts=[(round(x),round(y)) for x,y in ring.coords[:-1]]
+     pts=list(dict.fromkeys(pts))
+     if len(pts)<3:continue
+     pen.moveTo(pts[0])
+     for point in pts[1:]:pen.lineTo(point)
+     pen.closePath()
+  glyphs[n]=pen.glyph();metrics[n]=(width,round(shape.bounds[0]) if not shape.is_empty else 0)
+ fb=FontBuilder(1000,isTTF=True);fb.setupGlyphOrder(list(shapes));fb.setupCharacterMap(cmap);fb.setupGlyf(glyphs);fb.setupHorizontalMetrics(metrics)
+ fb.setupHorizontalHeader(ascent=1000,descent=-260,lineGap=0)
+ fb.setupNameTable({'familyName':'BrandSans','styleName':style,'uniqueFontIdentifier':f'BrandSans-1.000-{style}','fullName':f'BrandSans {style}','psName':f'BrandSans-{style}','version':'Version 1.000','copyright':'Original BrandSans outlines, 2026. Released under SIL Open Font License 1.1.','licenseDescription':'SIL Open Font License, Version 1.1','licenseInfoURL':'https://openfontlicense.org/open-font-license-official-text/','typographicFamily':'BrandSans','typographicSubfamily':style})
+ fb.setupOS2(version=4,sTypoAscender=1000,sTypoDescender=-260,sTypoLineGap=0,usWinAscent=1000,usWinDescent=260,sxHeight=520,sCapHeight=700,usWeightClass=weight,usWidthClass=5,fsType=0,fsSelection=0xC0 if weight==400 else 0x80)
+ fb.setupPost();fb.setupMaxp()
+ pairs={}
+ # Extend pairs to precomposed variants so accented Latin keeps spacing behavior.
+ for pair,value in KERN.items():
+  left=[chr(cp) for cp in CODES if unicodedata.normalize('NFD',chr(cp))[0]==pair[0]]
+  right=[chr(cp) for cp in CODES if unicodedata.normalize('NFD',chr(cp))[0]==pair[1]]
+  for a in left:
+   for b in right:pairs[(name(ord(a)),name(ord(b)))]=value
+ feature='languagesystem DFLT dflt; languagesystem latn dflt; feature kern {\n'+''.join(f'pos {a} {b} {v};\n' for (a,b),v in pairs.items())+'} kern;'
+ addOpenTypeFeaturesFromString(fb.font,feature)
+ kern=newTable('kern');from fontTools.ttLib.tables._k_e_r_n import KernTable_format_0
+ sub=KernTable_format_0();sub.version=0;sub.coverage=1;sub.kernTable=pairs;kern.version=0;kern.kernTables=[sub];fb.font['kern']=kern
+ fb.font['head'].created=fb.font['head'].modified=3874435200
+ path=ROOT/'fonts'/f'BrandSans-{style}.ttf';fb.save(path)
+ font=TTFont(path);font.flavor='woff2';font.save(path.with_suffix('.woff2'))
+ return len(pairs)
+
+if __name__=='__main__':
+ counts={s:build(s,w,t) for s,w,t in [('Regular',400,64),('Medium',500,86)]}
+ coverage={'family':'BrandSans','version':'1.000','codepointCount':len(CODES),'glyphCount':len(CODES)+1,'characters':''.join(map(chr,CODES)),'codepoints':[{'hex':f'U+{cp:04X}','character':chr(cp),'name':unicodedata.name(chr(cp),'UNNAMED')} for cp in CODES],'kerningPairs':counts,'metrics':{'unitsPerEm':1000,'ascender':1000,'descender':-260,'lineGap':0,'capHeight':700,'xHeight':520},'limitations':['No Cyrillic, Greek, Arabic or combining marks.','Precomposed Latin accents only; NFC-normalize decomposed text.','Static Regular/Medium; no italics, variable axes, ligatures or manual hinting.','Display-oriented design; small-size and print proofs still recommended.']}
+ (ROOT/'reports'/'coverage.json').write_text(json.dumps(coverage,ensure_ascii=False,indent=2),encoding='utf8')
+ (ROOT/'demo'/'src'/'coverage.json').write_text(json.dumps(coverage,ensure_ascii=False,indent=2),encoding='utf8')
+ import shutil
+ for f in (ROOT/'fonts').iterdir():shutil.copy2(f,ROOT/'demo'/'public'/'fonts'/f.name)
+ print(json.dumps({'codepoints':len(CODES),'kerningPairs':counts}))

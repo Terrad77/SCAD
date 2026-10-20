@@ -1,0 +1,72 @@
+{
+  "accessibility": [
+    {
+      "width": 320,
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds"
+        }
+      ]
+    },
+    {
+      "width": 1440,
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds"
+        }
+      ]
+    }
+  ],
+  "status": "PASS",
+  "browser": "Chromium 155.0.4283.62",
+  "viewports": [
+    {
+      "viewport": 320,
+      "content": 320
+    },
+    {
+      "viewport": 360,
+      "content": 360
+    },
+    {
+      "viewport": 768,
+      "content": 768
+    },
+    {
+      "viewport": 1440,
+      "content": 1440
+    }
+  ],
+  "fontCheck": {
+    "cyrillicWidth": 1009.9197998046875,
+    "cyrillicFallbackWidth": 695.7421875,
+    "cyrillicKernOn": 138.63998413085938,
+    "cyrillicKernOff": 143.4399871826172,
+    "loaded": true,
+    "brandWidth": 473.1199645996094,
+    "fallbackWidth": 288.046875
+  },
+  "checks": [
+    "both WOFF2 fonts loaded and rendered",
+    "weight switch",
+    "kerning toggle",
+    "unsupported text",
+    "empty text",
+    "reset",
+    "14 currency glyphs",
+    "321 total codepoints",
+    "76 Cyrillic letters and Russian/Ukrainian/Belarusian samples",
+    "actual Cyrillic canvas rendering and kerning",
+    "glyph inspector",
+    "keyboard focus outline",
+    "reduced motion",
+    "all downloads HTTP 200",
+    "font network failure and successful retry"
+  ],
+  "errors": [],
+  "failedResponses": []
+}

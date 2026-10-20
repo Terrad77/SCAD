@@ -1,0 +1,96 @@
+{
+  "status": "PASS",
+  "files": [
+    {
+      "file": "BrandSans-Regular.ttf",
+      "bytes": 53152,
+      "sha256": "64d1edc2ac7f1bae55f8a74ddcd2483a9a328d4133a7f8867a18a021e2223703",
+      "mappedCodepoints": 321,
+      "weight": 400,
+      "glyphBoundsY": [
+        -220,
+        900
+      ]
+    },
+    {
+      "file": "BrandSans-Regular.woff2",
+      "bytes": 17292,
+      "sha256": "88f1ed16062fea9f53943b5cf6fde7b4b32d9ca5fb4e8ccb75f76a3bb4ac4321",
+      "mappedCodepoints": 321,
+      "weight": 400,
+      "glyphBoundsY": [
+        -220,
+        900
+      ]
+    },
+    {
+      "file": "BrandSans-Medium.ttf",
+      "bytes": 51652,
+      "sha256": "e03034555b70015550e28f4a3e07feb1defc9287a70042b08881079423030242",
+      "mappedCodepoints": 321,
+      "weight": 500,
+      "glyphBoundsY": [
+        -220,
+        900
+      ]
+    },
+    {
+      "file": "BrandSans-Medium.woff2",
+      "bytes": 16852,
+      "sha256": "814443d6d49b51dc51697a0ac3bd0aee0af7f663341452f067129d763743b3ca",
+      "mappedCodepoints": 321,
+      "weight": 500,
+      "glyphBoundsY": [
+        -220,
+        900
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "weight": "Regular",
+      "cmap": "PASS",
+      "nonblankGlyphs": "PASS",
+      "bounds": "PASS",
+      "roundtrip": "PASS",
+      "shapingAllCodepoints": "PASS",
+      "kerningOnOff": "PASS",
+      "tabularNumerals": "PASS",
+      "capAndXHeight": "PASS",
+      "russianUkrainianBelarusian": "PASS",
+      "cyrillicKerning": "PASS",
+      "priorOutlinesMetricsAndKerningUnchanged": "PASS"
+    },
+    {
+      "weight": "Medium",
+      "cmap": "PASS",
+      "nonblankGlyphs": "PASS",
+      "bounds": "PASS",
+      "roundtrip": "PASS",
+      "shapingAllCodepoints": "PASS",
+      "kerningOnOff": "PASS",
+      "tabularNumerals": "PASS",
+      "capAndXHeight": "PASS",
+      "russianUkrainianBelarusian": "PASS",
+      "cyrillicKerning": "PASS",
+      "priorOutlinesMetricsAndKerningUnchanged": "PASS"
+    }
+  ],
+  "version": "1.200",
+  "currencySymbols": [
+    "$",
+    "¢",
+    "£",
+    "¤",
+    "¥",
+    "₩",
+    "₪",
+    "₫",
+    "€",
+    "₴",
+    "₹",
+    "₺",
+    "₽",
+    "₿"
+  ]
+}
