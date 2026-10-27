@@ -1,4 +1,5 @@
 import type { PublicationDocument } from "../core/publication.js"
+import type { PublicationState } from "../application/publication-packages.js"
 
 export type Recovery = {
   projectVersion: string
@@ -83,4 +84,22 @@ export function writeRecovery(storage: Storage, projectId: string, recovery: Rec
 
 export function deleteRecovery(storage: Storage, projectId: string) {
   storage.removeItem(key(projectId))
+}
+
+export function recoveryMatches(recovery: Recovery, state: PublicationState): boolean {
+  const item = recovery.packageId
+    ? state.packages.find((entry) => entry.packageId === recovery.packageId)
+    : undefined
+  const source = item?.source ?? state.sources.find((entry) => entry.id === recovery.sourceId)
+  return (
+    state.projectVersion === recovery.projectVersion &&
+    state.journalVersion === recovery.journalVersion &&
+    (recovery.packageId
+      ? !!item && item.revision === recovery.revision
+      : recovery.revision === null) &&
+    !!source &&
+    source.id === recovery.sourceId &&
+    source.proofSignature === recovery.proofSignature &&
+    source.dependencySignature === recovery.dependencySignature
+  )
 }

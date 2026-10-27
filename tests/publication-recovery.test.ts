@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest"
 import {
   deleteRecovery,
   readRecovery,
+  recoveryMatches,
   writeRecovery,
   type Recovery,
 } from "../src/ui/publication-recovery.js"
+import type { PublicationState } from "../src/application/publication-packages.js"
 
 function storage(): Storage {
   const data = new Map<string, string>()
@@ -71,5 +73,55 @@ describe("publication local recovery", () => {
         draft,
       ),
     ).toThrow("quota")
+  })
+})
+
+describe("recovery identity checks", () => {
+  const source = { id: "source", proofSignature: "proof", dependencySignature: "deps" }
+  const state = {
+    projectVersion: "p1",
+    journalVersion: "j1",
+    sources: [source],
+    packages: [{ packageId: "pkg", revision: 2, source }],
+  } as unknown as PublicationState
+  it("permits recovery only for the exact saved revision and source", () => {
+    expect(recoveryMatches(draft, state)).toBe(true)
+    for (const changed of [
+      { ...state, projectVersion: "other" },
+      { ...state, journalVersion: "other" },
+      { ...state, packages: [] },
+      { ...state, packages: [{ ...state.packages[0]!, revision: 3 }] },
+      {
+        ...state,
+        packages: [
+          { ...state.packages[0]!, source: { ...state.packages[0]!.source, id: "other" } },
+        ],
+      },
+      {
+        ...state,
+        packages: [
+          {
+            ...state.packages[0]!,
+            source: { ...state.packages[0]!.source, proofSignature: "other" },
+          },
+        ],
+      },
+      {
+        ...state,
+        packages: [
+          {
+            ...state.packages[0]!,
+            source: { ...state.packages[0]!.source, dependencySignature: "other" },
+          },
+        ],
+      },
+    ])
+      expect(recoveryMatches(draft, changed)).toBe(false)
+  })
+  it("supports new drafts only when the original eligible source still matches", () => {
+    const fresh = { ...draft, packageId: "", revision: null }
+    expect(recoveryMatches(fresh, state)).toBe(true)
+    expect(recoveryMatches(fresh, { ...state, sources: [] })).toBe(false)
+    expect(recoveryMatches({ ...fresh, revision: 1 }, state)).toBe(false)
   })
 })

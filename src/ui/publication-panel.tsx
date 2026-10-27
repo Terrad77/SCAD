@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import {
   deleteRecovery,
   readRecovery,
+  recoveryMatches,
   writeRecovery,
   type Recovery,
 } from "./publication-recovery.js"
@@ -478,16 +479,7 @@ export function PublicationPanel(props: Props) {
             ? state.packages.find((p) => p.packageId === recovery.packageId)
             : undefined
           const origin = item?.source ?? state.sources.find((s) => s.id === recovery.sourceId)
-          const matches =
-            state.projectVersion === recovery.projectVersion &&
-            state.journalVersion === recovery.journalVersion &&
-            (recovery.packageId
-              ? !!item && item.revision === recovery.revision
-              : recovery.revision === null) &&
-            !!origin &&
-            origin.id === recovery.sourceId &&
-            origin.proofSignature === recovery.proofSignature &&
-            origin.dependencySignature === recovery.dependencySignature
+          const matches = recoveryMatches(recovery, state)
           return (
             <section className="notice" aria-label="Local recovery copy">
               <h3>Unsaved publication work found</h3>
