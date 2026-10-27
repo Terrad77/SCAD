@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
+import {
+  deleteRecovery,
+  readRecovery,
+  writeRecovery,
+  type Recovery,
+} from "./publication-recovery.js"
 import type { PublicationDocument, PublicationSource } from "../core/publication.js"
 import type { PublicationRequest, PublicationState } from "../application/publication-packages.js"
 import type { ProjectExport } from "../application/project-export.js"
 
 type LinkedText = PublicationDocument["summary"]
 type Props = {
+  projectId: string
   load: () => Promise<PublicationState>
   change: (
     request: PublicationRequest,
@@ -119,6 +126,8 @@ function LinkedField({
   )
 }
 export function PublicationPanel(props: Props) {
+  const [recovery, setRecovery] = useState<Recovery | null>(null)
+  const [recoveryError, setRecoveryError] = useState("")
   const [state, setState] = useState<PublicationState | null>(null)
   const [packageId, setPackageId] = useState("")
   const [sourceId, setSourceId] = useState("")
@@ -133,6 +142,7 @@ export function PublicationPanel(props: Props) {
   const leaveDialog = useRef<HTMLDialogElement>(null)
   const allowNavigation = useRef(false)
   const baseline = useRef("")
+  const ownedRecovery = useRef<string | null>(null)
   const active = useRef(false)
   const alive = useRef(true)
   const request = useRef<PublicationRequest | null>(null)
@@ -142,7 +152,49 @@ export function PublicationPanel(props: Props) {
   const selected = state?.packages.find((item) => item.packageId === packageId)
   const source = selected?.source ?? state?.sources.find((item) => item.id === sourceId)
   const dirty = !!document && JSON.stringify(document) !== baseline.current
-  const disabled = busy || request.current !== null
+  const disabled = busy || request.current !== null || !!recovery
+  const clearRecovery = (force = false) => {
+    try {
+      const existing = force ? null : readRecovery(window.localStorage, props.projectId)
+      if (!force && existing && JSON.stringify(existing) !== ownedRecovery.current) return
+      deleteRecovery(window.localStorage, props.projectId)
+      ownedRecovery.current = null
+      setRecovery(null)
+      setRecoveryError("")
+    } catch {
+      setRecoveryError("Could not delete the local recovery copy. Check browser storage settings.")
+    }
+  }
+  const saveRecovery = (next: PublicationDocument, note: string) => {
+    if (!state || !source) return
+    try {
+      const existing = readRecovery(window.localStorage, props.projectId)
+      if (existing && JSON.stringify(existing) !== ownedRecovery.current) {
+        setRecoveryError(
+          "Another recovery copy exists. Your current edits are not being backed up; save the package or resolve the other copy first.",
+        )
+        return
+      }
+      const copy: Recovery = {
+        projectVersion: state.projectVersion,
+        journalVersion: state.journalVersion,
+        packageId,
+        revision: selected?.revision ?? null,
+        sourceId: source.id,
+        proofSignature: source.proofSignature,
+        dependencySignature: source.dependencySignature,
+        document: next,
+        reason: note,
+      }
+      writeRecovery(window.localStorage, props.projectId, copy)
+      ownedRecovery.current = JSON.stringify(copy)
+      setRecoveryError("")
+    } catch {
+      setRecoveryError(
+        "Local recovery is unavailable. Save your work as a package; browser storage may be full or blocked.",
+      )
+    }
+  }
   useEffect(() => {
     const dialog = leaveDialog.current
     if (!pendingNavigation || !dialog) return
@@ -206,7 +258,16 @@ export function PublicationPanel(props: Props) {
     void props
       .load()
       .then((next) => {
-        if (alive.current) adopt(next)
+        if (alive.current) {
+          adopt(next)
+          try {
+            setRecovery(readRecovery(window.localStorage, props.projectId))
+          } catch {
+            setRecoveryError(
+              "Local recovery could not be read. Check browser storage or delete the invalid copy.",
+            )
+          }
+        }
       })
       .catch((failure: unknown) => {
         if (alive.current)
@@ -229,6 +290,7 @@ export function PublicationPanel(props: Props) {
   }, [props.load])
   const update = (next: PublicationDocument) => {
     setDocument(next)
+    saveRecovery(next, reason)
     setAcknowledged(false)
   }
   const reload = async () => {
@@ -240,6 +302,7 @@ export function PublicationPanel(props: Props) {
       const next = await props.load()
       if (alive.current) {
         request.current = null
+        clearRecovery()
         adopt(next, packageId || undefined)
         setMessage("Publication packages reloaded; unsaved edits discarded.")
       }
@@ -288,6 +351,7 @@ export function PublicationPanel(props: Props) {
       const next = await props.load()
       if (alive.current) {
         request.current = null
+        clearRecovery()
         adopt(next, result.packageId)
         setMessage(
           `Package operation recorded for revision ${result.revision}. Check the saved decision and freshness below.`,
@@ -375,6 +439,7 @@ export function PublicationPanel(props: Props) {
             onClick={() => {
               const target = pendingNavigation
               setPendingNavigation(null)
+              clearRecovery()
               if (target?.isConnected) {
                 allowNavigation.current = true
                 target.click()
@@ -398,6 +463,74 @@ export function PublicationPanel(props: Props) {
               ? "Unsaved edits. Save a new revision before review."
               : "Saved package state loaded.")}
       </p>
+      {recoveryError && (
+        <div role="alert" className="notice bad">
+          <p>{recoveryError}</p>
+          <button type="button" onClick={() => clearRecovery(true)}>
+            Delete local recovery copy
+          </button>
+        </div>
+      )}
+      {recovery &&
+        state &&
+        (() => {
+          const item = recovery.packageId
+            ? state.packages.find((p) => p.packageId === recovery.packageId)
+            : undefined
+          const origin = item?.source ?? state.sources.find((s) => s.id === recovery.sourceId)
+          const matches =
+            state.projectVersion === recovery.projectVersion &&
+            state.journalVersion === recovery.journalVersion &&
+            (recovery.packageId
+              ? !!item && item.revision === recovery.revision
+              : recovery.revision === null) &&
+            !!origin &&
+            origin.id === recovery.sourceId &&
+            origin.proofSignature === recovery.proofSignature &&
+            origin.dependencySignature === recovery.dependencySignature
+          return (
+            <section className="notice" aria-label="Local recovery copy">
+              <h3>Unsaved publication work found</h3>
+              <p>
+                {matches
+                  ? "Restore this browser copy to continue editing. It is not a saved revision or approval."
+                  : "The project, package or source has changed. Review and copy the previous text manually; it cannot be restored over the current version."}
+              </p>
+              {!matches && (
+                <textarea
+                  aria-label="Previous recovery text"
+                  readOnly
+                  rows={8}
+                  value={JSON.stringify(
+                    { document: recovery.document, decisionNote: recovery.reason },
+                    null,
+                    2,
+                  )}
+                />
+              )}
+              {matches && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    adopt(state, recovery.packageId)
+                    setSourceId(recovery.sourceId)
+                    if (!item && origin) baseline.current = JSON.stringify(initialDocument(origin))
+                    setDocument(recovery.document)
+                    setReason(recovery.reason)
+                    ownedRecovery.current = JSON.stringify(recovery)
+                    setRecovery(null)
+                    setMessage("Recovered local edits. Save a new revision before review.")
+                  }}
+                >
+                  Restore edits
+                </button>
+              )}
+              <button type="button" onClick={() => clearRecovery(true)}>
+                Delete recovery copy
+              </button>
+            </section>
+          )
+        })()}
       {error && (
         <div role="alert" className="notice bad">
           <p>{error}</p>
@@ -422,7 +555,7 @@ export function PublicationPanel(props: Props) {
       )}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || !!recovery}
         onClick={() => {
           void reload()
         }}
@@ -439,7 +572,7 @@ export function PublicationPanel(props: Props) {
           Saved package
           <select
             value={packageId}
-            disabled={disabled || dirty}
+            disabled={disabled || dirty || !!reason.trim()}
             onChange={(event) => adopt(state, event.target.value)}
           >
             <option value="">New draft</option>
@@ -456,7 +589,7 @@ export function PublicationPanel(props: Props) {
         <label>
           Completed production source
           <select
-            disabled={disabled || dirty}
+            disabled={disabled || dirty || !!reason.trim()}
             value={sourceId}
             onChange={(event) => {
               const next = state.sources.find((item) => item.id === event.target.value)
@@ -680,7 +813,10 @@ export function PublicationPanel(props: Props) {
                   disabled={disabled}
                   maxLength={2000}
                   value={reason}
-                  onChange={(event) => setReason(event.target.value)}
+                  onChange={(event) => {
+                    setReason(event.target.value)
+                    if (document) saveRecovery(document, event.target.value)
+                  }}
                 />
               </label>
               <label className="publication-consent">

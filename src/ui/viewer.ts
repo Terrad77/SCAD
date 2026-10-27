@@ -352,6 +352,7 @@ function render() {
         if (ticket !== publicationGeneration || view !== current || tab !== "publication") return
         panel.replaceChildren()
         disposePublication = mountPublication(panel, {
+          projectId: current.id,
           load: () => api(path),
           change: (request) => api(path, "POST", request),
           export: (id, revision, version, format) =>
