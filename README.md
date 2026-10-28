@@ -190,6 +190,12 @@ Configure via `.env` (see `.env.example`):
 | `SCAD_CACHE_DIR`               | `data/cache`                                                | Where cache JSON files are stored (`data/` is gitignored) |
 | `SCAD_DATA_DIR`                | `data/projects`                                             | Where documentary projects are stored                     |
 
+OpenAI and Anthropic providers use native JSON Schema constrained output when the
+selected model supports it. If the API rejects that format, they fall back to JSON
+mode with an explicit JSON instruction; the output is still validated against the
+stage's Zod schema before the pipeline accepts it. Other providers continue using
+their existing JSON response behavior.
+
 ### Providers & caching
 
 - **LLM** — `openai` and `anthropic` call the real APIs with retry/timeout handling;

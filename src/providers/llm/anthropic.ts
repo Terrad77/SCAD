@@ -1,5 +1,5 @@
 import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
-import { fetchWithRetry } from "../http.js"
+import { fetchWithRetry, HttpRequestError, type HttpResult } from "../http.js"
 
 export interface AnthropicProviderOptions {
   apiKey?: string
@@ -25,6 +25,7 @@ const ANTHROPIC_VERSION = "2023-06-01"
  */
 export class AnthropicProvider implements LLMProvider {
   readonly name = "anthropic"
+  readonly capabilities = { jsonSchema: true } as const
 
   constructor(private readonly options: AnthropicProviderOptions = {}) {}
 
@@ -41,35 +42,19 @@ export class AnthropicProvider implements LLMProvider {
       "https://api.anthropic.com"
     ).replace(/\/$/, "")
 
-    const result = await fetchWithRetry(
-      `${baseUrl}/v1/messages`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": ANTHROPIC_VERSION,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: this.options.maxTokens ?? 4096,
-          system: [
-            request.system,
-            request.format === "json"
-              ? "Return exactly one valid JSON object with no Markdown fences or surrounding prose."
-              : undefined,
-          ]
-            .filter((part): part is string => Boolean(part))
-            .join("\n\n"),
-          messages: [{ role: "user", content: request.prompt }],
-        }),
-      },
-      {
-        timeoutMs: this.options.timeoutMs,
-        maxRetries: this.options.maxRetries,
-        fetch: this.options.fetch,
-      },
-    )
+    let jsonSchemaApplied = Boolean(request.jsonSchema)
+    let result: HttpResult
+    try {
+      result = await this.send(baseUrl, apiKey, bodyFor(request, model, this.options.maxTokens))
+    } catch (error) {
+      if (!request.jsonSchema || !isJsonSchemaRejection(error)) throw error
+      result = await this.send(
+        baseUrl,
+        apiKey,
+        bodyFor(request, model, this.options.maxTokens, false),
+      )
+      jsonSchemaApplied = false
+    }
 
     let payload: unknown
     try {
@@ -85,6 +70,66 @@ export class AnthropicProvider implements LLMProvider {
     if (text.length === 0) {
       throw new Error("Anthropic returned no text content")
     }
-    return { text }
+    return { text, jsonSchemaApplied }
   }
+
+  private send(baseUrl: string, apiKey: string, body: Record<string, unknown>) {
+    return fetchWithRetry(
+      `${baseUrl}/v1/messages`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify(body),
+      },
+      {
+        timeoutMs: this.options.timeoutMs,
+        maxRetries: this.options.maxRetries,
+        fetch: this.options.fetch,
+      },
+    )
+  }
+}
+
+function bodyFor(
+  request: LLMRequest,
+  model: string,
+  maxTokens: number | undefined,
+  useJsonSchema = Boolean(request.jsonSchema),
+): Record<string, unknown> {
+  const system = [
+    request.system,
+    request.format === "json" && !useJsonSchema
+      ? "Return exactly one valid JSON object with no Markdown fences or surrounding prose."
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
+  return {
+    model,
+    max_tokens: maxTokens ?? 4096,
+    ...(system ? { system } : {}),
+    messages: [{ role: "user", content: request.prompt }],
+    ...(useJsonSchema && request.jsonSchema
+      ? {
+          output_config: {
+            format: {
+              type: "json_schema",
+              schema: request.jsonSchema.schema,
+            },
+          },
+        }
+      : {}),
+  }
+}
+
+function isJsonSchemaRejection(error: unknown): boolean {
+  return (
+    error instanceof HttpRequestError &&
+    error.status === 400 &&
+    /structured output|output_config|json_schema|schema/i.test(error.body ?? "")
+  )
 }

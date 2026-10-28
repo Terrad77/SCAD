@@ -1,5 +1,5 @@
 import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
-import { fetchWithRetry } from "../http.js"
+import { fetchWithRetry, HttpRequestError, type HttpResult } from "../http.js"
 
 export interface OpenAIProviderOptions {
   apiKey?: string
@@ -18,10 +18,12 @@ interface OpenAICompletionPayload {
  * LLM provider backed by the OpenAI Chat Completions API. Model and endpoint
  * are configured through environment (`OPENAI_API_KEY`, `OPENAI_MODEL`,
  * `OPENAI_BASE_URL`) or constructor options; no model is hardcoded.
- * Structured output requests use JSON response mode.
+ * Structured output requests use strict JSON Schema, with JSON mode as a
+ * compatibility fallback when the selected model rejects schema mode.
  */
 export class OpenAIProvider implements LLMProvider {
   readonly name = "openai"
+  readonly capabilities = { jsonSchema: true } as const
 
   constructor(private readonly options: OpenAIProviderOptions = {}) {}
 
@@ -40,17 +42,50 @@ export class OpenAIProvider implements LLMProvider {
 
     const body: Record<string, unknown> = {
       model,
-      messages: [
-        ...(request.system ? [{ role: "system", content: request.system }] : []),
-        { role: "user", content: request.prompt },
-      ],
+      messages: messagesFor(request),
       temperature: 0,
     }
-    if (request.format === "json") {
+    if (request.jsonSchema) {
+      body.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: request.jsonSchema.name,
+          strict: true,
+          schema: request.jsonSchema.schema,
+        },
+      }
+    } else if (request.format === "json") {
       body.response_format = { type: "json_object" }
     }
 
-    const result = await fetchWithRetry(
+    let jsonSchemaApplied = Boolean(request.jsonSchema)
+    let result: HttpResult
+    try {
+      result = await this.send(baseUrl, apiKey, body)
+    } catch (error) {
+      if (!request.jsonSchema || !isJsonSchemaRejection(error)) throw error
+      body.response_format = { type: "json_object" }
+      body.messages = messagesFor(request, true)
+      result = await this.send(baseUrl, apiKey, body)
+      jsonSchemaApplied = false
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(result.body) as unknown
+    } catch {
+      throw new Error(`OpenAI returned non-JSON response (HTTP ${result.status})`)
+    }
+    const completion = payload as OpenAICompletionPayload
+    const content = completion.choices?.[0]?.message?.content
+    if (typeof content !== "string" || content.length === 0) {
+      throw new Error("OpenAI returned no text content")
+    }
+    return { text: content, jsonSchemaApplied }
+  }
+
+  private send(baseUrl: string, apiKey: string, body: Record<string, unknown>) {
+    return fetchWithRetry(
       `${baseUrl}/chat/completions`,
       {
         method: "POST",
@@ -66,18 +101,28 @@ export class OpenAIProvider implements LLMProvider {
         fetch: this.options.fetch,
       },
     )
-
-    let payload: unknown
-    try {
-      payload = JSON.parse(result.body) as unknown
-    } catch {
-      throw new Error(`OpenAI returned non-JSON response (HTTP ${result.status})`)
-    }
-    const completion = payload as OpenAICompletionPayload
-    const content = completion.choices?.[0]?.message?.content
-    if (typeof content !== "string" || content.length === 0) {
-      throw new Error("OpenAI returned no text content")
-    }
-    return { text: content }
   }
+}
+
+function messagesFor(request: LLMRequest, addJsonInstruction = false) {
+  const system = [
+    request.system,
+    addJsonInstruction
+      ? "Return exactly one valid JSON object with no Markdown fences or surrounding prose."
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
+  return [
+    ...(system ? [{ role: "system", content: system }] : []),
+    { role: "user", content: request.prompt },
+  ]
+}
+
+function isJsonSchemaRejection(error: unknown): boolean {
+  return (
+    error instanceof HttpRequestError &&
+    error.status === 400 &&
+    /json_schema|response_format|structured output/i.test(error.body ?? "")
+  )
 }

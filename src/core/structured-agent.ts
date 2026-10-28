@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { z } from "zod"
 import type { LLMProvider, LLMResponse } from "../providers/llm/llm.js"
+import { normalizeJsonSchemaNulls, toLLMJsonSchema } from "./json-schema.js"
 import { parseJsonObject } from "./json.js"
 
 export class StructuredError extends Error {
@@ -55,6 +56,9 @@ export class StructuredAgent {
     }
 
     const prompt = JSON.stringify(input, null, 2)
+    const jsonSchema = this.provider.capabilities?.jsonSchema
+      ? toLLMJsonSchema(schema, stage)
+      : undefined
     let lastError: unknown
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -64,6 +68,7 @@ export class StructuredAgent {
           system: cached,
           prompt,
           format: "json",
+          jsonSchema,
           meta: { stage },
         })
       } catch (error) {
@@ -71,7 +76,10 @@ export class StructuredAgent {
       }
 
       try {
-        return schema.parse(parseJsonObject(response.text)) as z.infer<S>
+        const output = parseJsonObject(response.text)
+        return schema.parse(
+          response.jsonSchemaApplied ? normalizeJsonSchemaNulls(output, schema) : output,
+        ) as z.infer<S>
       } catch (error) {
         lastError = error
         if (attempt < maxRetries) {

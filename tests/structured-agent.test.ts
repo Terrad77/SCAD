@@ -52,4 +52,30 @@ describe("StructuredAgent", () => {
     ).resolves.toEqual({ ok: true })
     expect(generate).toHaveBeenCalledTimes(2)
   })
+
+  it("passes native JSON Schema to capable providers and restores optional fields", async () => {
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({
+      text: '{"ok":true,"notes":null}',
+      jsonSchemaApplied: true,
+    })
+    const provider: LLMProvider = { capabilities: { jsonSchema: true }, generate }
+    const agent = new StructuredAgent(provider, loadSystem)
+
+    await expect(
+      agent.run(
+        "native-schema",
+        z.object({ ok: z.boolean(), notes: z.string().optional() }),
+        {},
+        { maxRetries: 0 },
+      ),
+    ).resolves.toEqual({ ok: true })
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jsonSchema: expect.objectContaining({
+          name: "native-schema",
+          schema: expect.objectContaining({ type: "object" }),
+        }),
+      }),
+    )
+  })
 })
