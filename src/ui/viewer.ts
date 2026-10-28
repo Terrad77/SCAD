@@ -355,6 +355,18 @@ function render() {
           projectId: current.id,
           load: () => api(path),
           change: (request) => api(path, "POST", request),
+          compare: (id, from, to, version) =>
+            api(
+              path +
+                "/compare?id=" +
+                encodeURIComponent(id) +
+                "&from=" +
+                from +
+                "&to=" +
+                to +
+                "&version=" +
+                encodeURIComponent(version),
+            ),
           export: (id, revision, version, format) =>
             api(
               path +

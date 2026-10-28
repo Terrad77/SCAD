@@ -12,6 +12,7 @@ import {
   readPublication,
   changePublication,
   exportPublication,
+  comparePublication,
   type PublicationRequest,
   type PublicationState,
 } from "../src/application/publication-packages.js"
@@ -115,6 +116,64 @@ async function decision(
   } as const
 }
 describe("isolated publication packages", () => {
+  it("compares bound saved fields without copying historical consent or writing any files", async () => {
+    await create()
+    await changePublication(root, "film", await decision())
+    const first = await readPublication(root, "film")
+    const item = first.packages[0]!
+    const document = structuredClone(item.document)
+    document.description.text = "Changed editorial description"
+    document.summary.sentenceIds = ["MISSING_REVIEW_LINK"]
+    document.titles.push({ text: "Additional title", sentenceIds: [] })
+    await changePublication(root, "film", {
+      action: "SAVE",
+      requestId: randomUUID(),
+      packageId: item.packageId,
+      revision: 1,
+      expectedProjectVersion: first.projectVersion,
+      expectedJournalVersion: first.journalVersion,
+      document,
+    })
+    const state = await readPublication(root, "film")
+    const path = join(root, "film", "publication", "journal.json")
+    const before = await readFile(path, "utf8"),
+      protectedBytes = await bytes()
+    const result = await comparePublication(
+      root,
+      "film",
+      item.packageId,
+      "1",
+      "2",
+      state.journalVersion,
+    )
+    expect(result.before.decision?.action).toBe("APPROVE")
+    expect(result.before.currentlyApproved).toBe(false)
+    expect(result.after.decision).toBeNull()
+    expect(result.after.currentlyApproved).toBe(false)
+    expect(result.fields).toContainEqual(
+      expect.objectContaining({ label: "Description", textChanged: true, linksChanged: false }),
+    )
+    expect(result.fields).toContainEqual(
+      expect.objectContaining({ label: "Summary", textChanged: false, linksChanged: true }),
+    )
+    expect(result.fields).toContainEqual(
+      expect.objectContaining({ label: "Title 3", status: "ADDED", before: null }),
+    )
+    expect(result.after.findings).toContainEqual(
+      expect.objectContaining({ status: "FAIL", code: "MATERIAL_LINK" }),
+    )
+    expect(await readFile(path, "utf8")).toBe(before)
+    expect(await bytes()).toEqual(protectedBytes)
+    await expect(
+      comparePublication(root, "film", item.packageId, "1", "2", "a".repeat(64)),
+    ).rejects.toMatchObject({ code: "PUBLICATION_CHANGED" })
+    await expect(
+      comparePublication(root, "film", item.packageId, "1", "99", state.journalVersion),
+    ).rejects.toMatchObject({ status: 404 })
+    await expect(
+      comparePublication(root, "film", "../escape", "1", "2", state.journalVersion),
+    ).rejects.toMatchObject({ status: 400 })
+  }, 20000)
   it("uses a genuinely completed mock run, preserves protected bytes and exports bound consent without certifying semantics", async () => {
     const before = await bytes()
     await create()
@@ -355,5 +414,19 @@ describe("isolated publication packages", () => {
     )
     expect(exported.status).toBe(200)
     expect(JSON.parse((await exported.json()).content).status).toContain("REVIEW COPY")
+    const compareUrl =
+      url + "/compare?id=" + request.packageId + "&from=1&to=1&version=" + next.journalVersion
+    expect((await fetch(compareUrl)).status).toBe(401)
+    expect(
+      (await fetch(compareUrl, { headers: { ...headers, Origin: "https://evil.example" } })).status,
+    ).toBe(403)
+    expect((await fetch(compareUrl, { method: "POST", headers, body: "{}" })).status).toBe(405)
+    const comparison = await fetch(compareUrl, { headers })
+    expect(comparison.status).toBe(200)
+    expect(
+      (await comparison.json()).fields.every(
+        (field: { status: string }) => field.status === "UNCHANGED",
+      ),
+    ).toBe(true)
   }, 20000)
 })

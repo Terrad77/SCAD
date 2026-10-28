@@ -22,6 +22,7 @@ import {
   publicationFields,
 } from "../core/publication.js"
 import type { ProjectExport } from "./project-export.js"
+import { comparePublicationDocuments } from "../core/publication-comparison.js"
 
 const signature = z.string().regex(/^[a-f0-9]{64}$/)
 const SourceSchema = z.object({
@@ -389,6 +390,66 @@ export async function changePublication(base: string, name: string, input: unkno
     return { packageId: result.packageId, revision: result.revision, replayed: false }
   })
 }
+export async function comparePublication(
+  base: string,
+  name: string,
+  id: string,
+  from: string,
+  to: string,
+  expected: string,
+) {
+  if (
+    !z.string().uuid().safeParse(id).success ||
+    !/^[1-9][0-9]{0,2}$/.test(from) ||
+    !/^[1-9][0-9]{0,2}$/.test(to) ||
+    !signature.safeParse(expected).success
+  )
+    throw new ViewerError(400, "INVALID_COMPARISON", "Select valid saved package revisions")
+  const state = await readPublication(base, name)
+  const body = await journal(base, name)
+  if (state.journalVersion !== expected || contentSignature(body) !== expected)
+    throw new ViewerError(409, "PUBLICATION_CHANGED", "Package changed; reload before comparing")
+  const version = (revision: string) => {
+    const item = body.versions.find(
+      (entry) => entry.packageId === id && entry.revision === Number(revision),
+    )
+    if (!item) throw new ViewerError(404, "PACKAGE_MISSING", "Publication version not found")
+    return item
+  }
+  const before = version(from),
+    after = version(to)
+  const summary = (item: PublicationVersion) => {
+    const checked = qualify(item, state.sources, state.verified)
+    const isLatest = latest(body, id)?.revision === item.revision
+    return {
+      revision: item.revision,
+      savedAt: item.savedAt,
+      signature: item.signature,
+      source: {
+        id: item.source.id,
+        label: item.source.label,
+        proofSignature: item.source.proofSignature,
+        dependencySignature: item.source.dependencySignature,
+      },
+      sourceAudit: item.source.snapshot.selfCheck.production?.verdict ?? "UNKNOWN",
+      freshness: checked.freshness,
+      findings: checked.findings,
+      decision: item.decision ?? null,
+      isLatest,
+      currentlyApproved:
+        isLatest && checked.freshness === "CURRENT" && item.decision?.action === "APPROVE",
+    }
+  }
+  return {
+    packageId: id,
+    journalVersion: expected,
+    before: summary(before),
+    after: summary(after),
+    fields: comparePublicationDocuments(before.document, after.document),
+  }
+}
+export type PublicationComparison = Awaited<ReturnType<typeof comparePublication>>
+
 export async function exportPublication(
   base: string,
   name: string,

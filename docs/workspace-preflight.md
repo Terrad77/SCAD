@@ -1,5 +1,13 @@
 # Workspace pre-flight
 
+## v0.14.3 saved publication comparison — 2026-10-27
+
+PASS: full regression 675 tests / 63 files, source/test TypeScript, full lint, formatting and production build. New tests cover exact whitespace/Cyrillic/link-order changes, positional added/removed fields, identical versions, no input mutation, historical consent/current approval separation, mechanical findings, unchanged journal and protected memory bytes, stale journal signatures, missing/unsafe revisions and authenticated local HTTP GET/Origin/method protections. Existing v0.14.2 recovery identity tests pass unchanged.
+
+PASS (actual built server, main 4311, retained MOCK SelfCheck project): revision 1 → 2 returns one changed field. Historical decision APPROVE remains visible; both sides are currentlyApproved false after v2 was saved as a draft. The read did not change any of 31 protected metadata/memory/output file hashes. No package mutation, generation or approval was performed. Measured against updated main 2e6fb58 with equivalent esbuild settings: initial viewer/shared modules 288575 → 288690 raw bytes (+115); optional editor 19730 → 24674 (+4944). No new dependency or font.
+
+UNVERIFIED: rendered comparison UI, actual narrow/ultrawide reflow, keyboard/focus and loading/error/late-response interactions in Chrome. MCP inventory twice exposed only IAB/MCP Apps, without Chrome; user connection request remains unanswered. No substitute browser or screenshot result is claimed. The native controls, wrapping and disposal are implemented but do not constitute observed accessibility or responsiveness. Physical Retina, screen reader, touch and live-provider/field checks remain separate gates. Current delivery is implemented and automatically verified; browser readiness remains unverified. No commit/push in this pass.
+
 ## BrandSans 1.200 Cyrillic refresh — 2026-10-20
 
 PASS: the user's updated public WOFF2 files already matched brandsans/fonts/. Rebuilt dist and compared all three locations byte-for-byte. Both weights report Version 1.200 with 321 codepoints. Independent FontTools decoding checks all 76 Russian/Ukrainian/Belarusian letters plus U+2116, non-.notdef glyph names and nonempty outlines. Total WOFF2 bytes: 34144. The system Python 3.14 could not load the package's cp312 Brotli extension; the bundled compatible runtime completed the actual WOFF2 check successfully. No generator execution or source report regeneration.

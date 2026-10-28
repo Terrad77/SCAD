@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import {
+  PublicationComparisonPanel,
+  type LoadPublicationComparison,
+} from "./publication-comparison-panel.js"
+import {
   deleteRecovery,
   readRecovery,
   recoveryMatches,
@@ -14,6 +18,7 @@ import type { ProjectExport } from "../application/project-export.js"
 type LinkedText = PublicationDocument["summary"]
 type Props = {
   projectId: string
+  compare: LoadPublicationComparison
   load: () => Promise<PublicationState>
   change: (
     request: PublicationRequest,
@@ -849,6 +854,23 @@ export function PublicationPanel(props: Props) {
                 </button>
               </div>
             </>
+          )}
+          {state && (
+            <PublicationComparisonPanel
+              key={[
+                selected.packageId,
+                state.journalVersion,
+                state.projectVersion,
+                selected.freshness,
+              ].join(":")}
+              id={selected.packageId}
+              version={state.journalVersion}
+              revisions={state.history
+                .filter((item) => item.packageId === selected.packageId)
+                .map((item) => item.revision)}
+              disabled={disabled || dirty}
+              load={props.compare}
+            />
           )}
           <h3>Local export</h3>
           <p>

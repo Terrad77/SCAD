@@ -3,6 +3,7 @@ import {
   readPublication,
   changePublication,
   exportPublication,
+  comparePublication,
 } from "../application/publication-packages.js"
 import { updateProjectDetails } from "../application/project-details.js"
 import { createProject } from "../application/project-create.js"
@@ -141,9 +142,8 @@ export async function startViewer(options: {
         !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
       )
         throw new ViewerError(401, "SESSION_REQUIRED", "Open the local workspace to access the API")
-      const publicationRoute = /^\/api\/projects\/([^/]+)\/publication(\/export)?$/.exec(
-        url.pathname,
-      )
+      const publicationRoute =
+        /^\/api\/projects\/([^/]+)\/publication(\/(?:export|compare))?$/.exec(url.pathname)
       if (publicationRoute) {
         let name: string
         try {
@@ -157,18 +157,32 @@ export async function startViewer(options: {
             "ORIGIN_REQUIRED",
             "Publication changes require a local browser origin",
           )
-        const result = publicationRoute[2]
-          ? await exportPublication(
-              options.dataDir,
-              name,
-              url.searchParams.get("id") ?? "",
-              url.searchParams.get("revision") ?? "",
-              url.searchParams.get("version") ?? "",
-              url.searchParams.get("format") ?? "",
-            )
-          : req.method === "GET"
-            ? await readPublication(options.dataDir, name)
-            : await changePublication(options.dataDir, name, await readProjectBody(req, 128 * 1024))
+        const result =
+          publicationRoute[2] === "/compare"
+            ? await comparePublication(
+                options.dataDir,
+                name,
+                url.searchParams.get("id") ?? "",
+                url.searchParams.get("from") ?? "",
+                url.searchParams.get("to") ?? "",
+                url.searchParams.get("version") ?? "",
+              )
+            : publicationRoute[2] === "/export"
+              ? await exportPublication(
+                  options.dataDir,
+                  name,
+                  url.searchParams.get("id") ?? "",
+                  url.searchParams.get("revision") ?? "",
+                  url.searchParams.get("version") ?? "",
+                  url.searchParams.get("format") ?? "",
+                )
+              : req.method === "GET"
+                ? await readPublication(options.dataDir, name)
+                : await changePublication(
+                    options.dataDir,
+                    name,
+                    await readProjectBody(req, 128 * 1024),
+                  )
         res.setHeader("Content-Type", "application/json; charset=utf-8")
         res.end(JSON.stringify(result))
         return
