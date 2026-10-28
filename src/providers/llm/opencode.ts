@@ -24,7 +24,11 @@ export class OpenCodeProvider implements LLMProvider {
       if (this.options.model ?? request.model) {
         args.push("--model", (this.options.model ?? request.model)!)
       }
-      const fullPrompt = `${request.system ? `${request.system}\n\n` : ""}${request.prompt}`
+      const formatInstruction =
+        request.format === "json"
+          ? "Return exactly one valid JSON object with no Markdown fences or surrounding prose.\n\n"
+          : ""
+      const fullPrompt = `${formatInstruction}${request.system ? `${request.system}\n\n` : ""}${request.prompt}`
       args.push(fullPrompt)
 
       const child = spawn("opencode", args, {

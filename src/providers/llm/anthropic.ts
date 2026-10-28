@@ -53,7 +53,14 @@ export class AnthropicProvider implements LLMProvider {
         body: JSON.stringify({
           model,
           max_tokens: this.options.maxTokens ?? 4096,
-          system: request.system,
+          system: [
+            request.system,
+            request.format === "json"
+              ? "Return exactly one valid JSON object with no Markdown fences or surrounding prose."
+              : undefined,
+          ]
+            .filter((part): part is string => Boolean(part))
+            .join("\n\n"),
           messages: [{ role: "user", content: request.prompt }],
         }),
       },

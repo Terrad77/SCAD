@@ -3,7 +3,7 @@ export interface LLMRequest {
   system?: string
   /** The task-specific user prompt. */
   prompt: string
-  /** Hint to the provider that structured (JSON) output is required. */
+  /** Request a JSON object; providers use native mode where available. */
   format?: "json"
   model?: string
   /** Provider-neutral metadata (e.g. pipeline stage) that mock providers can key on. */
@@ -19,5 +19,10 @@ export interface LLMResponse {
  * OpenAI, Anthropic, local servers and mock providers implement this interface.
  */
 export interface LLMProvider {
+  /**
+   * Generate one response. Implementations own transport concerns such as
+   * timeouts and transient network retries; callers may retry invalid output,
+   * but must not retry a failed provider call.
+   */
   generate(request: LLMRequest): Promise<LLMResponse>
 }

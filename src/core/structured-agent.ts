@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { z } from "zod"
-import type { LLMProvider } from "../providers/llm/llm.js"
-import { HttpRequestError } from "../providers/http.js"
+import type { LLMProvider, LLMResponse } from "../providers/llm/llm.js"
 import { parseJsonObject } from "./json.js"
 
 export class StructuredError extends Error {
@@ -30,6 +29,8 @@ export const readPromptFile: SystemPromptLoader = (stage) =>
  * Runs a single pipeline step: builds the prompt, calls the LLM provider,
  * parses the JSON object and validates it with a Zod schema. Invalid output
  * is retried with exponential backoff, then a StructuredError is raised.
+ * Provider failures are surfaced immediately because transport retries belong
+ * to the provider adapter; retrying them here would multiply network attempts.
  */
 export class StructuredAgent {
   private readonly promptCache = new Map<string, string>()
@@ -57,18 +58,22 @@ export class StructuredAgent {
     let lastError: unknown
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      let response: LLMResponse
       try {
-        const response = await this.provider.generate({
+        response = await this.provider.generate({
           system: cached,
           prompt,
           format: "json",
           meta: { stage },
         })
+      } catch (error) {
+        throw new StructuredError(stage, error)
+      }
+
+      try {
         return schema.parse(parseJsonObject(response.text)) as z.infer<S>
       } catch (error) {
         lastError = error
-        // A non-retryable HTTP failure (401/403/… ) cannot succeed on retry.
-        if (error instanceof HttpRequestError && !error.retriable) break
         if (attempt < maxRetries) {
           const delay = baseDelayMs * backoffFactor ** attempt
           await new Promise((resolve) => setTimeout(resolve, delay))

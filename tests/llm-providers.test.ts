@@ -112,7 +112,7 @@ describe("AnthropicProvider", () => {
       lastRequest,
     })
     const provider = new AnthropicProvider()
-    const response = await provider.generate({ system: "S", prompt: "P" })
+    const response = await provider.generate({ system: "S", prompt: "P", format: "json" })
     expect(response.text).toBe('{"ok":true}')
     const { url, init } = lastRequest
     if (!init) throw new Error("expected the provider to issue a request")
@@ -122,8 +122,11 @@ describe("AnthropicProvider", () => {
     expect(headers["anthropic-version"]).toBe("2023-06-01")
     const payload = JSON.parse(String(init.body ?? "")) as {
       model: string
+      system: string
     }
     expect(payload.model).toBe("claude-sonnet-test")
+    expect(payload.system).toContain("S")
+    expect(payload.system).toContain("valid JSON object")
   })
 
   it("requires an API key", async () => {

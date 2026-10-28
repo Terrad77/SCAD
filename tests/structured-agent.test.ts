@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
+import { z } from "zod"
 import { StructuredAgent, StructuredError } from "../src/core/structured-agent.js"
 import { EvidenceOutputSchema } from "../src/core/schemas.js"
 import { HttpRequestError } from "../src/providers/http.js"
@@ -24,15 +25,31 @@ describe("StructuredAgent", () => {
     expect(generate).toHaveBeenCalledTimes(1)
   })
 
-  it("still retries transient (retriable) failures", async () => {
+  it("does not retry a provider failure after the transport retry budget is exhausted", async () => {
     const generate = vi.fn<LLMProvider["generate"]>(async () => {
       throw new HttpRequestError(503, "unavailable", true, "HTTP 503")
     })
     const provider: LLMProvider = { generate }
     const agent = new StructuredAgent(provider, loadSystem)
+    const error = await agent
+      .run("evidence-extraction", EvidenceOutputSchema, {}, { maxRetries: 2, baseDelayMs: 1 })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(StructuredError)
+    expect((error as StructuredError).cause1).toMatchObject({ status: 503, retriable: true })
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries malformed output while keeping output retries separate from transport", async () => {
+    const generate = vi
+      .fn<LLMProvider["generate"]>()
+      .mockResolvedValueOnce({ text: "not json" })
+      .mockResolvedValueOnce({ text: '{"ok":true}' })
+    const provider: LLMProvider = { generate }
+    const agent = new StructuredAgent(provider, loadSystem)
+
     await expect(
-      agent.run("evidence-extraction", EvidenceOutputSchema, {}, { maxRetries: 2, baseDelayMs: 1 }),
-    ).rejects.toBeInstanceOf(StructuredError)
-    expect(generate).toHaveBeenCalledTimes(3)
+      agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 1, baseDelayMs: 1 }),
+    ).resolves.toEqual({ ok: true })
+    expect(generate).toHaveBeenCalledTimes(2)
   })
 })
