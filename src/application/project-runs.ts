@@ -12,6 +12,12 @@ import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/pr
 import { join, resolve } from "node:path"
 import { z } from "zod"
 import { runDocumentaryPipeline, type DocumentaryOptions } from "../core/documentary.js"
+import {
+  StructuredError,
+  StructuredInvalidOutputError,
+  StructuredRefusalError,
+  StructuredTruncationError,
+} from "../core/structured-agent.js"
 import { contentSignature } from "../core/production/approval.js"
 import { JsonMemoryStore } from "../core/memory/json-memory.js"
 import { assertNoPendingProductionRevision } from "../core/production/revisions.js"
@@ -73,6 +79,21 @@ export type RunExecutor = (
   >,
 ) => Promise<void>
 class CheckpointPending extends Error {}
+function runFailureMessage(error: unknown): string {
+  if (error instanceof StructuredRefusalError) {
+    return `Run failed at ${error.stage}: the model refused the structured output.`
+  }
+  if (error instanceof StructuredTruncationError) {
+    return `Run failed at ${error.stage}: the model response was truncated by its output limit.`
+  }
+  if (error instanceof StructuredInvalidOutputError) {
+    return `Run failed at ${error.stage}: the model output did not match the required JSON schema after retries.`
+  }
+  if (error instanceof StructuredError) {
+    return `Run failed at ${error.stage}: the LLM request failed. Check provider configuration and connectivity.`
+  }
+  return "Run failed. Inspect the project and server provider configuration before another run."
+}
 async function execute(options: Parameters<RunExecutor>[0]) {
   const result = await runDocumentaryPipeline({
     ...options,
@@ -422,9 +443,7 @@ export class ProjectRuns {
         if (error instanceof CheckpointPending) return
 
         run.state = "FAILED"
-        await save(
-          "Run failed. Inspect the project and server provider configuration before another run.",
-        )
+        await save(runFailureMessage(error))
       }
     })
       .then(() => undefined)

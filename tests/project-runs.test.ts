@@ -4,6 +4,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
 import { ProjectRuns } from "../src/application/project-runs.js"
+import {
+  StructuredInvalidOutputError,
+  StructuredRefusalError,
+  StructuredTruncationError,
+} from "../src/core/structured-agent.js"
 import { ProjectReader } from "../src/application/project-reader.js"
 import { withProjectWrite } from "../src/application/project-write-coordinator.js"
 import { initProject } from "../src/storage/project-store.js"
@@ -30,6 +35,26 @@ async function input() {
   }
 }
 describe("browser pipeline jobs", () => {
+  it.each([
+    [new StructuredRefusalError("claims", "private refusal details"), "model refused"],
+    [new StructuredTruncationError("narrative", "max_tokens"), "response was truncated"],
+    [
+      new StructuredInvalidOutputError("visual", new Error("invalid private payload")),
+      "did not match the required JSON schema",
+    ],
+  ])("records a safe diagnostic for structured LLM failure %#", async (failure, expected) => {
+    const jobs = new ProjectRuns(root, async () => {
+      throw failure
+    })
+    await jobs.start("demo", await input())
+    await vi.waitFor(async () => expect((await jobs.status("demo")).run?.state).toBe("FAILED"))
+
+    const event = (await jobs.status("demo")).run?.events.at(-1)?.message
+    expect(event).toContain(expected)
+    expect(event).not.toContain("private")
+    await jobs.close()
+  })
+
   it("runs the real pipeline to a persisted candidate without approving or running downstream", async () => {
     const jobs = new ProjectRuns(root)
     const request = await input()
