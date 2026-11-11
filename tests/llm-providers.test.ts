@@ -160,6 +160,36 @@ describe("OpenAIProvider", () => {
     stubFetch({ status: 200, body: JSON.stringify({ choices: [] }) })
     await expect(new OpenAIProvider().generate({ prompt: "x" })).rejects.toThrow(/no text content/)
   })
+
+  it("reports OpenAI refusals and truncated outputs", async () => {
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: null, refusal: "Cannot comply" },
+          },
+        ],
+      }),
+    })
+    await expect(new OpenAIProvider().generate({ prompt: "x" })).resolves.toMatchObject({
+      finishReason: "refusal",
+      refusal: "Cannot comply",
+    })
+
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({
+        choices: [{ finish_reason: "length", message: { content: '{"ok":' } }],
+      }),
+    })
+    await expect(new OpenAIProvider().generate({ prompt: "x" })).resolves.toMatchObject({
+      text: '{"ok":',
+      finishReason: "length",
+      providerFinishReason: "length",
+    })
+  })
 })
 
 describe("AnthropicProvider", () => {
@@ -272,5 +302,34 @@ describe("AnthropicProvider", () => {
     await expect(new AnthropicProvider().generate({ prompt: "x" })).rejects.toThrow(
       /no text content/,
     )
+  })
+
+  it("reports Anthropic refusals and truncated outputs", async () => {
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({
+        content: [{ type: "text", text: "I cannot help with that." }],
+        stop_reason: "refusal",
+        stop_details: { reason: "safety" },
+      }),
+    })
+    await expect(new AnthropicProvider().generate({ prompt: "x" })).resolves.toMatchObject({
+      finishReason: "refusal",
+      refusal: "I cannot help with that.",
+      providerFinishReason: "refusal",
+    })
+
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({
+        content: [{ type: "text", text: '{"ok":' }],
+        stop_reason: "max_tokens",
+      }),
+    })
+    await expect(new AnthropicProvider().generate({ prompt: "x" })).resolves.toMatchObject({
+      text: '{"ok":',
+      finishReason: "length",
+      providerFinishReason: "max_tokens",
+    })
   })
 })

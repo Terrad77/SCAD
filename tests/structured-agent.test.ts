@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest"
 import { z } from "zod"
-import { StructuredAgent, StructuredError } from "../src/core/structured-agent.js"
+import {
+  StructuredAgent,
+  StructuredError,
+  StructuredInvalidOutputError,
+  StructuredRefusalError,
+  StructuredTruncationError,
+} from "../src/core/structured-agent.js"
 import { EvidenceOutputSchema } from "../src/core/schemas.js"
 import { HttpRequestError } from "../src/providers/http.js"
 import type { LLMProvider } from "../src/providers/llm/llm.js"
@@ -50,6 +56,44 @@ describe("StructuredAgent", () => {
     await expect(
       agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 1, baseDelayMs: 1 }),
     ).resolves.toEqual({ ok: true })
+    expect(generate).toHaveBeenCalledTimes(2)
+  })
+
+  it("surfaces refusals without retrying", async () => {
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({
+      text: "I cannot help with that request.",
+      finishReason: "refusal",
+      refusal: "I cannot help with that request.",
+    })
+    const agent = new StructuredAgent({ generate }, loadSystem)
+
+    await expect(
+      agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 3, baseDelayMs: 1 }),
+    ).rejects.toBeInstanceOf(StructuredRefusalError)
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
+
+  it("surfaces truncated responses without retrying", async () => {
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({
+      text: '{"ok":',
+      finishReason: "length",
+      providerFinishReason: "max_tokens",
+    })
+    const agent = new StructuredAgent({ generate }, loadSystem)
+
+    await expect(
+      agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 3, baseDelayMs: 1 }),
+    ).rejects.toBeInstanceOf(StructuredTruncationError)
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
+
+  it("classifies malformed output after exhausting output retries", async () => {
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({ text: "not json" })
+    const agent = new StructuredAgent({ generate }, loadSystem)
+
+    await expect(
+      agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 1, baseDelayMs: 1 }),
+    ).rejects.toBeInstanceOf(StructuredInvalidOutputError)
     expect(generate).toHaveBeenCalledTimes(2)
   })
 
