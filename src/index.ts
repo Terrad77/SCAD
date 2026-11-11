@@ -2,7 +2,14 @@ export { runDocumentaryPipeline, renderScript } from "./core/documentary.js"
 export type { DocumentaryOptions, DocumentaryResult } from "./core/documentary.js"
 export { Pipeline, AutoApprover, StageRejectedError, PIPELINE_ORDER } from "./core/pipeline.js"
 export type { ApprovalGate, PipelineArtifacts, ApprovalDecision } from "./core/pipeline.js"
-export { StructuredAgent, StructuredError, readPromptFile } from "./core/structured-agent.js"
+export {
+  StructuredAgent,
+  StructuredError,
+  StructuredInvalidOutputError,
+  StructuredRefusalError,
+  StructuredTruncationError,
+  readPromptFile,
+} from "./core/structured-agent.js"
 export { buildTraceabilityReport } from "./core/traceability.js"
 export type { TraceabilityReport, TraceEntry } from "./core/traceability.js"
 export { JsonMemoryStore } from "./core/memory/json-memory.js"

@@ -1,4 +1,9 @@
-import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
+import {
+  normalizeLLMFinishReason,
+  type LLMProvider,
+  type LLMRequest,
+  type LLMResponse,
+} from "./llm.js"
 import { fetchWithRetry, HttpRequestError, type HttpResult } from "../http.js"
 
 export interface OpenAIProviderOptions {
@@ -11,7 +16,10 @@ export interface OpenAIProviderOptions {
 }
 
 interface OpenAICompletionPayload {
-  choices?: Array<{ message?: { content?: string } }>
+  choices?: Array<{
+    finish_reason?: string | null
+    message?: { content?: string | null; refusal?: string | null }
+  }>
 }
 
 /**
@@ -77,11 +85,24 @@ export class OpenAIProvider implements LLMProvider {
       throw new Error(`OpenAI returned non-JSON response (HTTP ${result.status})`)
     }
     const completion = payload as OpenAICompletionPayload
-    const content = completion.choices?.[0]?.message?.content
-    if (typeof content !== "string" || content.length === 0) {
+    const choice = completion.choices?.[0]
+    const message = choice?.message
+    const refusal = message?.refusal ?? undefined
+    const content = message?.content ?? ""
+    const providerFinishReason = choice?.finish_reason ?? undefined
+    if (typeof content !== "string") {
       throw new Error("OpenAI returned no text content")
     }
-    return { text: content, jsonSchemaApplied }
+    if (content.length === 0 && !refusal && !providerFinishReason) {
+      throw new Error("OpenAI returned no text content")
+    }
+    return {
+      text: content,
+      jsonSchemaApplied,
+      finishReason: refusal ? "refusal" : normalizeLLMFinishReason(providerFinishReason),
+      providerFinishReason,
+      refusal,
+    }
   }
 
   private send(baseUrl: string, apiKey: string, body: Record<string, unknown>) {

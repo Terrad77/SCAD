@@ -16,6 +16,24 @@ export interface LLMResponse {
   text: string
   /** True only when the provider accepted and applied the supplied JSON Schema. */
   jsonSchemaApplied?: boolean
+  /** Normalized reason generation stopped. Providers may omit this when unavailable. */
+  finishReason?: LLMFinishReason
+  /** Provider's original finish reason for diagnostics. */
+  providerFinishReason?: string
+  /** Refusal explanation, when the provider supplies one. */
+  refusal?: string
+}
+
+export type LLMFinishReason = "stop" | "length" | "refusal" | "other"
+
+export function normalizeLLMFinishReason(reason: unknown): LLMFinishReason | undefined {
+  if (typeof reason !== "string" || reason.length === 0) return undefined
+  if (["stop", "end_turn", "stop_sequence"].includes(reason)) return "stop"
+  if (["length", "max_tokens", "model_context_window_exceeded"].includes(reason)) {
+    return "length"
+  }
+  if (reason === "refusal") return "refusal"
+  return "other"
 }
 
 export interface LLMJsonSchema {

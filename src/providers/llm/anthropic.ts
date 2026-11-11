@@ -1,4 +1,9 @@
-import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
+import {
+  normalizeLLMFinishReason,
+  type LLMProvider,
+  type LLMRequest,
+  type LLMResponse,
+} from "./llm.js"
 import { fetchWithRetry, HttpRequestError, type HttpResult } from "../http.js"
 
 export interface AnthropicProviderOptions {
@@ -13,6 +18,8 @@ export interface AnthropicProviderOptions {
 
 interface AnthropicMessagesPayload {
   content?: Array<{ type?: string; text?: string }>
+  stop_reason?: string | null
+  stop_details?: { reason?: string }
 }
 
 /** Default Anthropic API version used for /v1/messages. */
@@ -67,10 +74,19 @@ export class AnthropicProvider implements LLMProvider {
       .filter((part) => part.type === "text")
       .map((part) => part.text ?? "")
       .join("\n")
-    if (text.length === 0) {
+    const providerFinishReason = messages.stop_reason ?? undefined
+    const refusal =
+      providerFinishReason === "refusal" ? text || messages.stop_details?.reason : undefined
+    if (text.length === 0 && !providerFinishReason) {
       throw new Error("Anthropic returned no text content")
     }
-    return { text, jsonSchemaApplied }
+    return {
+      text,
+      jsonSchemaApplied,
+      finishReason: normalizeLLMFinishReason(providerFinishReason),
+      providerFinishReason,
+      refusal,
+    }
   }
 
   private send(baseUrl: string, apiKey: string, body: Record<string, unknown>) {

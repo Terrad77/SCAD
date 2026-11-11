@@ -10,7 +10,39 @@ export class StructuredError extends Error {
     readonly stage: string,
     readonly cause1: unknown,
   ) {
-    super(`Structured ${stage} output failed validation: ${String(cause1)}`)
+    super(`Structured ${stage} output failed: ${String(cause1)}`)
+    this.name = "StructuredError"
+  }
+}
+
+export class StructuredInvalidOutputError extends StructuredError {
+  constructor(stage: string, cause: unknown) {
+    super(stage, cause)
+    this.name = "StructuredInvalidOutputError"
+  }
+}
+
+export class StructuredRefusalError extends StructuredError {
+  constructor(
+    stage: string,
+    readonly refusal?: string,
+  ) {
+    super(
+      stage,
+      new Error(refusal ? `Provider refused: ${refusal}` : "Provider refused the request"),
+    )
+    this.name = "StructuredRefusalError"
+  }
+}
+
+export class StructuredTruncationError extends StructuredError {
+  constructor(
+    stage: string,
+    readonly providerFinishReason?: string,
+  ) {
+    const detail = providerFinishReason ? ` (${providerFinishReason})` : ""
+    super(stage, new Error(`Provider truncated the response${detail}`))
+    this.name = "StructuredTruncationError"
   }
 }
 
@@ -29,7 +61,7 @@ export const readPromptFile: SystemPromptLoader = (stage) =>
 /**
  * Runs a single pipeline step: builds the prompt, calls the LLM provider,
  * parses the JSON object and validates it with a Zod schema. Invalid output
- * is retried with exponential backoff, then a StructuredError is raised.
+ * is retried with exponential backoff, then a StructuredInvalidOutputError is raised.
  * Provider failures are surfaced immediately because transport retries belong
  * to the provider adapter; retrying them here would multiply network attempts.
  */
@@ -75,6 +107,21 @@ export class StructuredAgent {
         throw new StructuredError(stage, error)
       }
 
+      if (response.finishReason === "refusal" || response.refusal) {
+        throw new StructuredRefusalError(stage, response.refusal)
+      }
+      if (response.finishReason === "length") {
+        throw new StructuredTruncationError(stage, response.providerFinishReason)
+      }
+      if (response.finishReason === "other") {
+        throw new StructuredError(
+          stage,
+          new Error(
+            `Provider ended generation with ${response.providerFinishReason ?? "an unsupported reason"}`,
+          ),
+        )
+      }
+
       try {
         const output = parseJsonObject(response.text)
         return schema.parse(
@@ -89,6 +136,6 @@ export class StructuredAgent {
       }
     }
 
-    throw new StructuredError(stage, lastError)
+    throw new StructuredInvalidOutputError(stage, lastError)
   }
 }
