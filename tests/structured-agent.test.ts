@@ -122,4 +122,38 @@ describe("StructuredAgent", () => {
       }),
     )
   })
+
+  it("applies the configured output token budget only to the matching stage", async () => {
+    vi.stubEnv("SCAD_LLM_OUTPUT_TOKEN_BUDGETS", '{"sample":1536,"narrative":8192}')
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({ text: '{"ok":true}' })
+    const agent = new StructuredAgent(
+      { capabilities: { maxOutputTokens: true }, generate },
+      loadSystem,
+    )
+
+    try {
+      await agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 0 })
+      expect(generate).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 1536 }))
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("rejects invalid per-stage output token configuration before calling the provider", async () => {
+    vi.stubEnv("SCAD_LLM_OUTPUT_TOKEN_BUDGETS", '{"sample":0}')
+    const generate = vi.fn<LLMProvider["generate"]>().mockResolvedValue({ text: '{"ok":true}' })
+    const agent = new StructuredAgent(
+      { capabilities: { maxOutputTokens: true }, generate },
+      loadSystem,
+    )
+
+    try {
+      await expect(
+        agent.run("sample", z.object({ ok: z.boolean() }), {}, { maxRetries: 0 }),
+      ).rejects.toThrow(/positive whole-number token limits/)
+      expect(generate).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })

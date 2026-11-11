@@ -13,6 +13,7 @@ export interface OllamaOptions {
 /** LLM provider backed by a local Ollama server (http://127.0.0.1:11434). */
 export class OllamaProvider implements LLMProvider {
   readonly name = "ollama"
+  readonly capabilities = { maxOutputTokens: true } as const
 
   constructor(private readonly options: OllamaOptions = {}) {}
 
@@ -29,6 +30,9 @@ export class OllamaProvider implements LLMProvider {
         prompt: `${system}\n\n${request.prompt}`,
         stream: false,
         format: request.format,
+        ...(request.maxOutputTokens !== undefined
+          ? { options: { num_predict: request.maxOutputTokens } }
+          : {}),
       }),
     })
     if (!response.ok) {

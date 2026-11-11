@@ -91,6 +91,9 @@ export class StructuredAgent {
     const jsonSchema = this.provider.capabilities?.jsonSchema
       ? toLLMJsonSchema(schema, stage)
       : undefined
+    const maxOutputTokens = this.provider.capabilities?.maxOutputTokens
+      ? outputTokenLimitForStage(stage)
+      : undefined
     let lastError: unknown
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -101,6 +104,7 @@ export class StructuredAgent {
           prompt,
           format: "json",
           jsonSchema,
+          maxOutputTokens,
           meta: { stage },
         })
       } catch (error) {
@@ -138,4 +142,29 @@ export class StructuredAgent {
 
     throw new StructuredInvalidOutputError(stage, lastError)
   }
+}
+
+function outputTokenLimitForStage(stage: string): number | undefined {
+  const raw = process.env.SCAD_LLM_OUTPUT_TOKEN_BUDGETS
+  if (!raw) return undefined
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    throw new Error("SCAD_LLM_OUTPUT_TOKEN_BUDGETS must be a JSON object of stage token limits")
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("SCAD_LLM_OUTPUT_TOKEN_BUDGETS must be a JSON object of stage token limits")
+  }
+
+  const limits = parsed as Record<string, unknown>
+  for (const [name, value] of Object.entries(limits)) {
+    if (!name || typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+      throw new Error(
+        "SCAD_LLM_OUTPUT_TOKEN_BUDGETS values must be positive whole-number token limits",
+      )
+    }
+  }
+  return Object.hasOwn(limits, stage) ? (limits[stage] as number) : undefined
 }

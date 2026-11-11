@@ -117,6 +117,20 @@ describe("OpenAIProvider", () => {
     })
   })
 
+  it("sends the configured completion token cap", async () => {
+    const lastRequest: CapturedRequest = {}
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({ choices: [{ message: { content: "{}" } }] }),
+      lastRequest,
+    })
+    await new OpenAIProvider().generate({ prompt: "Do it", maxOutputTokens: 1536 })
+    const payload = JSON.parse(String(lastRequest.init?.body ?? "")) as {
+      max_completion_tokens?: number
+    }
+    expect(payload.max_completion_tokens).toBe(1536)
+  })
+
   it("falls back to JSON mode when the model rejects JSON Schema mode", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -254,6 +268,23 @@ describe("AnthropicProvider", () => {
       schema: { type: "object", required: ["ok"] },
     })
     expect(payload.system).toBe("System")
+  })
+
+  it("uses the per-request output cap ahead of its default token limit", async () => {
+    const lastRequest: CapturedRequest = {}
+    stubFetch({
+      status: 200,
+      body: JSON.stringify({ content: [{ type: "text", text: "{}" }] }),
+      lastRequest,
+    })
+    await new AnthropicProvider({ maxTokens: 4096 }).generate({
+      prompt: "Do it",
+      maxOutputTokens: 2048,
+    })
+    const payload = JSON.parse(String(lastRequest.init?.body ?? "")) as {
+      max_tokens?: number
+    }
+    expect(payload.max_tokens).toBe(2048)
   })
 
   it("falls back to prompted JSON when the model rejects structured outputs", async () => {

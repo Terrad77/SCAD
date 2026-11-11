@@ -37,6 +37,23 @@ describe("OllamaProvider outcomes", () => {
       providerFinishReason: "length",
     })
   })
+
+  it("sends a per-request output token cap to Ollama", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ response: "{}", done_reason: "stop" }), { status: 200 }),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+    const provider = new OllamaProvider({ model: "local-test" })
+
+    await provider.generate({ prompt: "Return JSON", maxOutputTokens: 3072 })
+
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? "")) as {
+      options?: { num_predict?: number }
+    }
+    expect(payload.options?.num_predict).toBe(3072)
+  })
 })
 
 describe("OpenCodeProvider outcomes", () => {

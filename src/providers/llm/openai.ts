@@ -31,7 +31,7 @@ interface OpenAICompletionPayload {
  */
 export class OpenAIProvider implements LLMProvider {
   readonly name = "openai"
-  readonly capabilities = { jsonSchema: true } as const
+  readonly capabilities = { jsonSchema: true, maxOutputTokens: true } as const
 
   constructor(private readonly options: OpenAIProviderOptions = {}) {}
 
@@ -52,6 +52,9 @@ export class OpenAIProvider implements LLMProvider {
       model,
       messages: messagesFor(request),
       temperature: 0,
+      ...(request.maxOutputTokens !== undefined
+        ? { max_completion_tokens: request.maxOutputTokens }
+        : {}),
     }
     if (request.jsonSchema) {
       body.response_format = {

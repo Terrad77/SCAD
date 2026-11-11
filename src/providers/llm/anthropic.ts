@@ -32,7 +32,7 @@ const ANTHROPIC_VERSION = "2023-06-01"
  */
 export class AnthropicProvider implements LLMProvider {
   readonly name = "anthropic"
-  readonly capabilities = { jsonSchema: true } as const
+  readonly capabilities = { jsonSchema: true, maxOutputTokens: true } as const
 
   constructor(private readonly options: AnthropicProviderOptions = {}) {}
 
@@ -52,7 +52,11 @@ export class AnthropicProvider implements LLMProvider {
     let jsonSchemaApplied = Boolean(request.jsonSchema)
     let result: HttpResult
     try {
-      result = await this.send(baseUrl, apiKey, bodyFor(request, model, this.options.maxTokens))
+      result = await this.send(
+        baseUrl,
+        apiKey,
+        bodyFor(request, model, this.options.maxTokens, Boolean(request.jsonSchema)),
+      )
     } catch (error) {
       if (!request.jsonSchema || !isJsonSchemaRejection(error)) throw error
       result = await this.send(
@@ -126,7 +130,7 @@ function bodyFor(
     .join("\n\n")
   return {
     model,
-    max_tokens: maxTokens ?? 4096,
+    max_tokens: request.maxOutputTokens ?? maxTokens ?? 4096,
     ...(system ? { system } : {}),
     messages: [{ role: "user", content: request.prompt }],
     ...(useJsonSchema && request.jsonSchema

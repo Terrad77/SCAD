@@ -7,6 +7,8 @@ export interface LLMRequest {
   format?: "json"
   /** Native constrained output format, when the provider supports it. */
   jsonSchema?: LLMJsonSchema
+  /** Upper bound for generated tokens, when the provider supports per-request limits. */
+  maxOutputTokens?: number
   model?: string
   /** Provider-neutral metadata (e.g. pipeline stage) that mock providers can key on. */
   meta?: Record<string, string>
@@ -44,6 +46,8 @@ export interface LLMJsonSchema {
 export interface LLMProviderCapabilities {
   /** Provider supports constrained JSON Schema output for compatible models. */
   jsonSchema?: boolean
+  /** Provider can apply a per-request generated-token limit. */
+  maxOutputTokens?: boolean
 }
 
 /**

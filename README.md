@@ -169,32 +169,37 @@ Set `SCAD_DATA_DIR` to change the output root (default: `data/projects`).
 
 Configure via `.env` (see `.env.example`):
 
-| Setting                        | Values                                                      | Notes                                                     |
-| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------- |
-| `LLM_PROVIDER`                 | `opencode` \| `ollama` \| `mock` \| `openai` \| `anthropic` | LLM backend; `mock` is fully offline                      |
-| `OPENAI_API_KEY`               |                                                             | Required for `LLM_PROVIDER=openai`                        |
-| `OPENAI_MODEL`                 | e.g. `gpt-4o`                                               | OpenAI model (used unless overridden)                     |
-| `ANTHROPIC_API_KEY`            |                                                             | Required for `LLM_PROVIDER=anthropic`                     |
-| `ANTHROPIC_MODEL`              | e.g. `claude-sonnet-4-20250514`                             | Anthropic model (used unless overridden)                  |
-| `SEARCH_PROVIDER`              | `mock` (default) \| `brave`                                 | Search backend for the research engine                    |
-| `BRAVE_SEARCH_API_KEY`         |                                                             | Required for `SEARCH_PROVIDER=brave`                      |
-| `CONTENT_PROVIDER`             | `noop` (default) \| `mock` \| `http`                        | Full-page content fetcher for evidence                    |
-| `RESEARCH_MAX_QUERIES`         | `10`                                                        | Max sub-questions per research run                        |
-| `RESEARCH_MAX_RESULTS`         | `8`                                                         | Max search results per query                              |
-| `RESEARCH_MAX_FOLLOWUP_ROUNDS` | `1`                                                         | How often gaps trigger follow-up research                 |
-| `RESEARCH_MAX_SOURCES`         | `40`                                                        | Global cap on collected sources                           |
-| `RESEARCH_MAX_CONTENT`         | `8000`                                                      | Per-source content length limit (chars)                   |
-| `SCAD_REFERENCE_DATE`          | ISO date, e.g. `2026-01-15`                                 | Roots freshness + `generatedAt` for reproducible scores   |
-| `CACHE_ENABLED`                | `1`                                                         | `0` disables the JSON file cache entirely                 |
-| `CACHE_TTL`                    | `86400`                                                     | Cache TTL in seconds                                      |
-| `SCAD_CACHE_DIR`               | `data/cache`                                                | Where cache JSON files are stored (`data/` is gitignored) |
-| `SCAD_DATA_DIR`                | `data/projects`                                             | Where documentary projects are stored                     |
+| Setting                         | Values                                                      | Notes                                                                 |
+| ------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------- |
+| `LLM_PROVIDER`                  | `opencode` \| `ollama` \| `mock` \| `openai` \| `anthropic` | LLM backend; `mock` is fully offline                                  |
+| `OPENAI_API_KEY`                |                                                             | Required for `LLM_PROVIDER=openai`                                    |
+| `OPENAI_MODEL`                  | e.g. `gpt-4o`                                               | OpenAI model (used unless overridden)                                 |
+| `SCAD_LLM_OUTPUT_TOKEN_BUDGETS` | JSON object keyed by stage, e.g. `{"narrative":8192}`       | Optional per-stage output token caps for OpenAI, Anthropic and Ollama |
+| `ANTHROPIC_API_KEY`             |                                                             | Required for `LLM_PROVIDER=anthropic`                                 |
+| `ANTHROPIC_MODEL`               | e.g. `claude-sonnet-4-20250514`                             | Anthropic model (used unless overridden)                              |
+| `SEARCH_PROVIDER`               | `mock` (default) \| `brave`                                 | Search backend for the research engine                                |
+| `BRAVE_SEARCH_API_KEY`          |                                                             | Required for `SEARCH_PROVIDER=brave`                                  |
+| `CONTENT_PROVIDER`              | `noop` (default) \| `mock` \| `http`                        | Full-page content fetcher for evidence                                |
+| `RESEARCH_MAX_QUERIES`          | `10`                                                        | Max sub-questions per research run                                    |
+| `RESEARCH_MAX_RESULTS`          | `8`                                                         | Max search results per query                                          |
+| `RESEARCH_MAX_FOLLOWUP_ROUNDS`  | `1`                                                         | How often gaps trigger follow-up research                             |
+| `RESEARCH_MAX_SOURCES`          | `40`                                                        | Global cap on collected sources                                       |
+| `RESEARCH_MAX_CONTENT`          | `8000`                                                      | Per-source content length limit (chars)                               |
+| `SCAD_REFERENCE_DATE`           | ISO date, e.g. `2026-01-15`                                 | Roots freshness + `generatedAt` for reproducible scores               |
+| `CACHE_ENABLED`                 | `1`                                                         | `0` disables the JSON file cache entirely                             |
+| `CACHE_TTL`                     | `86400`                                                     | Cache TTL in seconds                                                  |
+| `SCAD_CACHE_DIR`                | `data/cache`                                                | Where cache JSON files are stored (`data/` is gitignored)             |
+| `SCAD_DATA_DIR`                 | `data/projects`                                             | Where documentary projects are stored                                 |
 
 OpenAI and Anthropic providers use native JSON Schema constrained output when the
 selected model supports it. If the API rejects that format, they fall back to JSON
 mode with an explicit JSON instruction; the output is still validated against the
 stage's Zod schema before the pipeline accepts it. Other providers continue using
 their existing JSON response behavior.
+
+Set `SCAD_LLM_OUTPUT_TOKEN_BUDGETS` to a JSON object mapping structured-output stage
+names to positive token limits, for example `{"research-plan":2048,"narrative":8192}`.
+OpenCode uses its model configuration for output limits and does not consume this setting.
 
 ### Providers & caching
 
