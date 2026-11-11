@@ -1,4 +1,9 @@
-import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
+import {
+  normalizeLLMFinishReason,
+  type LLMProvider,
+  type LLMRequest,
+  type LLMResponse,
+} from "./llm.js"
 
 export interface OllamaOptions {
   baseUrl?: string
@@ -29,10 +34,14 @@ export class OllamaProvider implements LLMProvider {
     if (!response.ok) {
       throw new Error(`Ollama request failed (${response.status}): ${await response.text()}`)
     }
-    const payload = (await response.json()) as { response?: string }
+    const payload = (await response.json()) as { response?: string; done_reason?: string }
     if (typeof payload.response !== "string") {
       throw new Error("Ollama returned no text response")
     }
-    return { text: payload.response }
+    return {
+      text: payload.response,
+      finishReason: normalizeLLMFinishReason(payload.done_reason),
+      providerFinishReason: payload.done_reason,
+    }
   }
 }

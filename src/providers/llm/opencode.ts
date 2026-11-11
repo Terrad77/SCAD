@@ -1,5 +1,10 @@
 import { spawn } from "node:child_process"
-import type { LLMProvider, LLMRequest, LLMResponse } from "./llm.js"
+import {
+  normalizeLLMFinishReason,
+  type LLMProvider,
+  type LLMRequest,
+  type LLMResponse,
+} from "./llm.js"
 
 export interface OpenCodeOptions {
   model?: string
@@ -9,7 +14,7 @@ export interface OpenCodeOptions {
 
 type OpenCodeEvent = {
   type?: string
-  part?: { type?: string; text?: string }
+  part?: { type?: string; text?: string; reason?: string }
 }
 
 /** Invokes an already-authenticated OpenCode CLI (opencode run --format json). */
@@ -56,15 +61,14 @@ export class OpenCodeProvider implements LLMProvider {
           reject(new Error(`OpenCode exited with code ${code}: ${stderr || stdout}`))
           return
         }
-        const text = stdout
-          .split(/\r?\n/)
-          .flatMap((line) => {
-            try {
-              return [JSON.parse(line) as OpenCodeEvent]
-            } catch {
-              return []
-            }
-          })
+        const events = stdout.split(/\r?\n/).flatMap((line) => {
+          try {
+            return [JSON.parse(line) as OpenCodeEvent]
+          } catch {
+            return []
+          }
+        })
+        const text = events
           .filter((event) => event.type === "text" && event.part?.type === "text")
           .map((event) => event.part?.text ?? "")
           .join("\n")
@@ -72,7 +76,15 @@ export class OpenCodeProvider implements LLMProvider {
           reject(new Error(`OpenCode returned no text event: ${stdout || stderr}`))
           return
         }
-        resolve({ text })
+        const providerFinishReason = events.filter((event) => event.type === "step_finish").at(-1)
+          ?.part?.reason
+        // OpenCode's `tool-calls` marks an intermediate agent step, not the
+        // end of the full run; only report terminal reasons we can classify.
+        const finishReason =
+          providerFinishReason === "tool-calls"
+            ? undefined
+            : normalizeLLMFinishReason(providerFinishReason)
+        resolve({ text, finishReason, providerFinishReason })
       })
     })
   }
